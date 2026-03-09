@@ -1,0 +1,33 @@
+{
+  "name": "verascore-backend",
+  "version": "1.0.0",
+  "description": "VeraScore backend — AI scoring engine for PAS TestNet",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "tsx watch src/index.ts",
+    "start": "node dist/index.js",
+    "build": "tsc"
+  },
+  "dependencies": {
+    "@mistralai/mistralai": "^1.0.0",
+    "@polkadot-api/descriptors": "file:.papi\\descriptors",
+    "@polkadot-api/polkadot-sdk-compat": "^1.0.0",
+    "@polkadot/util": "^14.0.1",
+    "@polkadot/util-crypto": "^14.0.1",
+    "better-sqlite3": "^12.6.2",
+    "cors": "^2.8.5",
+    "dotenv": "^16.0.0",
+    "ethers": "^6.0.0",
+    "express": "^4.18.2",
+    "polkadot-api": "^1.7.0"
+  },
+  "devDependencies": {
+    "@types/better-sqlite3": "^7.6.13",
+    "@types/cors": "^2.8.17",
+    "@types/express": "^4.17.21",
+    "@types/node": "^22.0.0",
+    "tsx": "^4.0.0",
+    "typescript": "^5.0.0"
+  }
+}

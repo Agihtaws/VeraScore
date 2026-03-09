@@ -1,0 +1,26 @@
+{
+  "name": "verascore-contracts",
+  "version": "1.0.0",
+  "description": "VeraScore smart contracts — PAS TestNet (Chain ID 420420417)",
+  "private": true,
+  "scripts": {
+    "compile": "hardhat compile",
+    "clean":   "hardhat clean",
+    "test":    "hardhat test",
+    "deploy":  "hardhat run scripts/deploy.ts --network polkadotTestnet",
+    "upgrade:testnet": "hardhat run scripts/upgradeTestnet.ts --network polkadotTestnet"
+  },
+  "devDependencies": {
+    "hardhat": "^2.27.0",
+    "@nomicfoundation/hardhat-toolbox": "^5.0.0",
+    "@openzeppelin/hardhat-upgrades": "^3.0.0",
+    "@types/node": "^20.0.0",
+    "typescript": "^5.0.0",
+    "ts-node": "^10.9.2",
+    "dotenv": "^16.0.0"
+  },
+  "dependencies": {
+    "@openzeppelin/contracts-upgradeable": "^5.0.0",
+    "@openzeppelin/contracts": "^5.0.0"
+  }
+}
