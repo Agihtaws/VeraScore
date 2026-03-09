@@ -4,37 +4,19 @@ import { getHistory }                from '../db/database.js';
 
 export const verifyRouter = Router();
 
-const RPC_URL  = 'https://services.polkadothub-rpc.com/testnet';
+// Switching back to this one as it seems to know your contract better
+const RPC_URL  = 'https://services.polkadothub-rpc.com/testnet'; 
 const CHAIN_ID = 420420417;
 
-// V2 read-only ABI — getScore returns all data needed for verification
 const SCORE_NFT_ABI = [
   'function getScore(address wallet) external view returns (uint16 score, uint64 issuedAt, uint64 expiresAt, bytes32 dataHash, bool isValid, bool exists)',
   'function totalScored() external view returns (uint256)',
 ];
 
-// ─────────────────────────────────────────────────────────────────────────────
-// GET /verify/:address
-//
-// Public protocol integration endpoint.
-// Any DeFi protocol can call this to verify a wallet's VeraScore WITHOUT
-// reading the blockchain directly. Includes CORS * for cross-origin access.
-//
-// Response shape:
-//   { valid, address, score, issuedAt, expiresAt, txHash, dataHash, totalScored }
-//
-// `valid` is the canonical single boolean: has score + not expired.
-// `txHash` comes from SQLite history (the confirmed mint transaction).
-// ─────────────────────────────────────────────────────────────────────────────
 verifyRouter.get('/:address', async (req: Request, res: Response) => {
   const raw = req.params.address;
-
   if (!ethers.isAddress(raw)) {
-    res.status(400).json({
-      success: false,
-      error:   'Invalid Ethereum address',
-    });
-    return;
+    return res.status(400).json({ success: false, error: 'Invalid Ethereum address' });
   }
 
   const address = raw.toLowerCase();
@@ -46,50 +28,35 @@ verifyRouter.get('/:address', async (req: Request, res: Response) => {
     const provider = new ethers.JsonRpcProvider(RPC_URL, {
       chainId: CHAIN_ID,
       name:    'polkadot-testnet',
-    });
+    }, { staticNetwork: true }); 
+    
     const contract = new ethers.Contract(proxyAddress, SCORE_NFT_ABI, provider);
 
-    const [scoreData, totalScoredRaw] = await Promise.all([
-      contract.getScore(address),
-      contract.totalScored(),
+    // Give it a slightly longer 5s timeout since this RPC is a bit slower
+    const [scoreData, totalScoredRaw] = await Promise.race([
+      Promise.all([
+        contract.getScore(address),
+        contract.totalScored(),
+      ]),
+      new Promise<[any, any]>((_, reject) => 
+        setTimeout(() => reject(new Error('RPC Timeout')), 5000)
+      ),
     ]);
 
     const [score, issuedAt, expiresAt, dataHash, isValid, exists] = scoreData;
     const totalScored = Number(totalScoredRaw);
-
-    // No score minted yet
-    if (!exists) {
-      res.json({
-        success:      true,
-        valid:        false,
-        address,
-        score:        null,
-        issuedAt:     null,
-        expiresAt:    null,
-        txHash:       null,
-        dataHash:     null,
-        totalScored,
-        protocol:     'VeraScore v2',
-        contract:     proxyAddress,
-        network:      'PAS TestNet',
-        chainId:      CHAIN_ID,
-      });
-      return;
-    }
-
-    // Get mint txHash from SQLite history (most recent entry for this address)
     const history = getHistory(address);
     const latestTx = history.length > 0 ? history[0].txHash : null;
 
     res.json({
       success:      true,
-      valid:        Boolean(isValid),
+      valid:        Boolean(isValid && exists),
       address,
-      score:        Number(score),
-      issuedAt:     Number(issuedAt),
-      expiresAt:    Number(expiresAt),
+      score:        exists ? Number(score) : null,
+      issuedAt:     exists ? Number(issuedAt) : null,
+      expiresAt:    exists ? Number(expiresAt) : null,
       txHash:       latestTx,
-      dataHash,
+      dataHash:     exists ? dataHash : null,
       totalScored,
       protocol:     'VeraScore v2',
       contract:     proxyAddress,
@@ -97,9 +64,8 @@ verifyRouter.get('/:address', async (req: Request, res: Response) => {
       chainId:      CHAIN_ID,
     });
 
-  } catch (err: unknown) {
-    const msg = err instanceof Error ? err.message : 'Unknown error';
-    console.error(`[verify] ❌ Error for ${address}:`, err);
-    res.status(500).json({ success: false, error: msg });
+  } catch (err: any) {
+    console.error(`[verify] ❌ Error:`, err.message);
+    res.status(500).json({ success: false, error: "Contract call failed. Please ensure the proxy address is correct and the RPC is online." });
   }
 });

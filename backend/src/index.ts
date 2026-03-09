@@ -4,13 +4,15 @@ import cors             from 'cors';
 import { scoreRouter }  from './routes/score.js';
 import { verifyRouter } from './routes/verify.js';
 import { lendingRouter }from './routes/lending.js';
-import { feeInfoRouter }from './routes/feeInfo.js';
+import { feeInfoRouter }  from './routes/feeInfo.js';
+import { balancesRouter }  from './routes/balances.js';
 
-// ── Env validation — server refuses to start if any required var is missing ───
+// ── Env validation — Added LENDING_POOL_ADDRESS to the required list ───
 const REQUIRED_ENV = [
   'MISTRAL_API_KEY',
   'ISSUER_PRIVATE_KEY',
   'SCORE_NFT_PROXY',
+  'LENDING_POOL_ADDRESS', // Added this for safety!
 ] as const;
 
 for (const key of REQUIRED_ENV) {
@@ -45,6 +47,7 @@ app.use((req: Request, res: Response, next: NextFunction) => {
 
 // ── CORS ──────────────────────────────────────────────────────────────────────
 const defaultCors = cors({ origin: FRONTEND_URL, credentials: true });
+// Open CORS for public verification and lending integrations
 const openCors    = cors({ origin: '*', methods: ['GET', 'OPTIONS'], allowedHeaders: ['Content-Type', 'Authorization'] });
 
 // ── Routes ────────────────────────────────────────────────────────────────────
@@ -52,6 +55,9 @@ app.use('/score',    defaultCors, scoreRouter);
 app.use('/verify',   openCors,    verifyRouter);
 app.use('/lending',  openCors,    lendingRouter);
 app.use('/fee-info', defaultCors, feeInfoRouter);
+app.use('/balances', defaultCors, balancesRouter);
+
+// Handle preflight for public routes
 app.options('/verify/*',  openCors);
 app.options('/lending/*', openCors);
 
@@ -59,10 +65,11 @@ app.options('/lending/*', openCors);
 app.get('/health', (_req: Request, res: Response) => {
   res.json({
     status:   'ok',
-    version:  '5.0.0',
+    version:  '5.1.0',
     network:  'PAS TestNet',
     chainId:  420420417,
     contract: process.env.SCORE_NFT_PROXY,
+    lending:  process.env.LENDING_POOL_ADDRESS,
   });
 });
 
@@ -71,11 +78,10 @@ app.use((_req: Request, res: Response) => {
   res.status(404).json({ success: false, error: 'Route not found' });
 });
 
-// ── Global error handler — never exposes stack traces to the client ───────────
-// eslint-disable-next-line @typescript-eslint/no-unused-vars
+// ── Global error handler ──────────────────────────────────────────────────────
 app.use((err: unknown, _req: Request, res: Response, _next: NextFunction) => {
   const msg = err instanceof Error ? err.message : 'Internal server error';
-  console.error('[uncaught]', err); // full stack stays on the server only
+  console.error('[uncaught]', err);
   res.status(500).json({ success: false, error: msg });
 });
 
@@ -83,16 +89,15 @@ app.use((err: unknown, _req: Request, res: Response, _next: NextFunction) => {
 app.listen(PORT, () => {
   console.log('');
   console.log('┌──────────────────────────────────────────────────────┐');
-  console.log('│  VeraScore Backend  v5.0.0  (Phase 6)               │');
+  console.log('│  VeraScore Backend  v5.1.0  (Demo Ready)            │');
   console.log('├──────────────────────────────────────────────────────┤');
-  console.log(`│  Port:     ${PORT}                                     │`);
-  console.log(`│  Network:  PAS TestNet  (Chain ID: 420420417)        │`);
-  console.log(`│  Contract: ${process.env.SCORE_NFT_PROXY}  │`);
-  console.log(`│  Frontend: ${FRONTEND_URL.padEnd(43)}│`);
+  console.log(`│  Port:     ${PORT.toString().padEnd(42)}│`);
+  console.log(`│  Network:  PAS TestNet (420420417)               │`);
+  console.log(`│  Proxy:    ${(process.env.SCORE_NFT_PROXY?.slice(0, 10) + '...' + process.env.SCORE_NFT_PROXY?.slice(-10)).padEnd(42)}│`);
+  console.log(`│  Frontend: ${FRONTEND_URL.padEnd(42)}│`);
   console.log('├──────────────────────────────────────────────────────┤');
-  console.log('│  Rate limit: 1 score request per address per 60 min │');
-  console.log('│  Logging:    enabled (method · path · status · ms)  │');
-  console.log('│  Errors:     stack traces never sent to client       │');
+  console.log('│  Speed:     Optimized (No Sidecar timeouts)         │');
+  console.log('│  Logging:   Enabled (Static Network mode)           │');
   console.log('└──────────────────────────────────────────────────────┘');
   console.log('');
 });

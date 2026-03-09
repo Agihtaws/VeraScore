@@ -62,6 +62,7 @@ export interface ScorePayload {
   breakdown:       ScoreBreakdown;
   rawChainData:    RawChainData;
   alreadyHadScore: boolean;
+  expiresAt?:      number;  // unix seconds from contract
   txHash?:         string;
   relayed?:        boolean;
 }

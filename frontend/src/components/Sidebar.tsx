@@ -4,14 +4,15 @@ import { pasTestnet, SCORE_NFT_PROXY } from '../utils/wagmi.js';
 
 const EXPLORER = 'https://polkadot.testnet.routescan.io';
 
-export type Page = 'home' | 'lookup' | 'lending' | 'leaderboard' | 'send' | 'fees' | 'wallet';
+export type Page = 'home' | 'lookup' | 'lending' | 'leaderboard' | 'send' | 'stables' | 'fees' | 'wallet';
 
 export const NAV: { id: Page; icon: string; label: string; badge?: string }[] = [
   { id: 'home',    icon: '◈', label: 'Score'    },
   { id: 'lookup',      icon: '⌕', label: 'Lookup'      },
   { id: 'leaderboard', icon: '🏆', label: 'Leaderboard' },
   { id: 'lending', icon: '⬡', label: 'Lending'  },
-  { id: 'send',    icon: '↑', label: 'Send PAS'  },
+  { id: 'send',    icon: '↑', label: 'Send PAS'   },
+  { id: 'stables', icon: '◎', label: 'Send USDT',  badge: 'NEW' },
   { id: 'fees',    icon: '⛽', label: 'Fee Calc'  },
   { id: 'wallet',  icon: '⊕', label: 'New Wallet', badge: 'NEW' },
 ];

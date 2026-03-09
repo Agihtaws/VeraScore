@@ -690,7 +690,7 @@ export function Home({ onNavigate }: Props) {
                 : '✓ Soulbound Score NFT minted to your wallet'}
             </div>
 
-            <ScoreCard payload={payload} />
+            <ScoreCard payload={payload} expiresAt={payload.expiresAt} />
 
             {/* On-chain SVG NFT — fetched directly from contract tokenURI */}
             {payload.txHash && (

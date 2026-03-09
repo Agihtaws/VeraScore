@@ -2,7 +2,8 @@ import { ethers }               from 'ethers';
 import type { WalletChainData } from '../chain/papiReader.js';
 import type { ScoreResult }     from './mistralScorer.js';
 
-const RPC_URL  = 'https://services.polkadothub-rpc.com/testnet';
+// Using the more stable RPC for the final signing check
+const RPC_URL  = 'https://pas-rpc.stakeworld.io'; 
 const CHAIN_ID = 420420417;
 
 const SCORE_NFT_ABI = [
@@ -33,6 +34,7 @@ export interface SignedScorePayload {
   breakdown:       ScoreResult['breakdown'];
   rawChainData:    WalletChainData;
   alreadyHadScore: boolean;
+  expiresAt:       number; 
 }
 
 export async function buildSignedPayload(
@@ -48,13 +50,16 @@ export async function buildSignedPayload(
 
   const normalizedWallet = walletAddress.toLowerCase();
 
-  const provider     = new ethers.JsonRpcProvider(RPC_URL, {
+  // Added { staticNetwork: true } to keep the logs clean and fast!
+  const provider = new ethers.JsonRpcProvider(RPC_URL, {
     chainId: CHAIN_ID,
     name:    'polkadot-testnet',
-  });
+  }, { staticNetwork: true });
+
   const issuerWallet = new ethers.Wallet(privateKey, provider);
   const contract     = new ethers.Contract(proxyAddress, SCORE_NFT_ABI, provider);
 
+  // Fetch all contract data in parallel to save time
   const [currentNonce, alreadyHadScore, contractIssuer, contractDs] = await Promise.all([
     contract.nonces(normalizedWallet),
     contract.hasScore(normalizedWallet),
@@ -77,10 +82,8 @@ export async function buildSignedPayload(
     verifyingContract: proxyAddress,
   };
 
-  // What backend computes as domain separator
   const computedDs = ethers.TypedDataEncoder.hashDomain(domain);
 
-  // ── Debug logging ────────────────────────────────────────
   console.log('[signer] ── DEBUG ──────────────────────────────');
   console.log(`[signer] Issuer wallet:   ${issuerWallet.address}`);
   console.log(`[signer] Contract issuer: ${contractIssuer}`);
@@ -100,9 +103,10 @@ export async function buildSignedPayload(
     deadline: BigInt(deadline),
   };
 
+  // Sign the EIP-712 payload
   const signature = await issuerWallet.signTypedData(domain, EIP712_TYPES, value);
 
-  console.log(`[signer] ✅ Signature ready`);
+  console.log(`[signer] ✅ Signature ready for ${normalizedWallet}`);
 
   return {
     wallet:          normalizedWallet,
@@ -115,5 +119,6 @@ export async function buildSignedPayload(
     breakdown:       scoreResult.breakdown,
     rawChainData:    chainData,
     alreadyHadScore: Boolean(alreadyHadScore),
+    expiresAt:       Math.floor(Date.now() / 1000) + 2 * 3600,
   };
 }

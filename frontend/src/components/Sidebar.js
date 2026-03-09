@@ -9,6 +9,7 @@ export const NAV = [
     { id: 'leaderboard', icon: '🏆', label: 'Leaderboard' },
     { id: 'lending', icon: '⬡', label: 'Lending' },
     { id: 'send', icon: '↑', label: 'Send PAS' },
+    { id: 'stables', icon: '◎', label: 'Send USDT', badge: 'NEW' },
     { id: 'fees', icon: '⛽', label: 'Fee Calc' },
     { id: 'wallet', icon: '⊕', label: 'New Wallet', badge: 'NEW' },
 ];

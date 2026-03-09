@@ -14,6 +14,7 @@ import { SendPAS }           from './pages/SendPAS.js';
 import { FeeCalculator }     from './pages/FeeCalculator.js';
 import { Leaderboard }      from './pages/Leaderboard.js';
 import { CreateWallet }     from './pages/CreateWallet.js';
+import { SendStablecoin }   from './pages/SendStablecoin.js';
 import { pasTestnet, SCORE_NFT_PROXY } from './utils/wagmi.js';
 
 const EXPLORER = 'https://polkadot.testnet.routescan.io';
@@ -265,6 +266,7 @@ export default function App() {
           {page === 'lending' && <LendingDemo />}
           {page === 'send'    && <SendPAS onSuccess={() => refetchBal()} />}
           {page === 'fees'    && <FeeCalculator />}
+          {page === 'stables' && <SendStablecoin />}
           {page === 'wallet'  && <CreateWallet onNavigateHome={() => navigate('home')} />}
         </main>
 
