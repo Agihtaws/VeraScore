@@ -166,6 +166,8 @@ export function useScore(): {
   const [cooldownTs,   setCooldownTs]   = useState<number | null>(null);
   const [gasEstimate,  setGasEstimate]  = useState<{ pas: string; usd: string } | null>(null);
   const [rateLimitSec, setRateLimitSec] = useState<number | null>(null);
+  // Keep ref in sync so requestScore can read current value without stale closure
+  useEffect(() => { rateLimitSecRef.current = rateLimitSec; }, [rateLimitSec]);
 
   const { address }            = useAccount();
   const chainId                = useChainId();
@@ -173,6 +175,7 @@ export function useScore(): {
   const { writeContractAsync } = useWriteContract();
   const pendingData            = useRef<ScorePayload | null>(null);
   const cancelPoll             = useRef<(() => void) | null>(null);
+  const rateLimitSecRef        = useRef<number | null>(null);  // mirror for closure access
 
   const onConfirmed = useCallback((txHash: `0x${string}`) => {
     const data = pendingData.current;
@@ -211,7 +214,8 @@ export function useScore(): {
     setError(null);
     setCooldownTs(null);
     setGasEstimate(null);
-    setRateLimitSec(null);
+    // NOTE: do NOT clear rateLimitSec here — the countdown must keep ticking
+    // even after the user dismisses. It is cleared automatically when it hits 0.
   }, []);
 
   const prevAddress = useRef<string | undefined>(undefined);
@@ -304,6 +308,10 @@ export function useScore(): {
   }, [address, doMint]);
 
   const requestScore = useCallback(async (walletAddress: string) => {
+    // Guard: don't restart if still in rate-limit cooldown
+    // Use ref (not state) to avoid stale closure reads
+    if (rateLimitSecRef.current !== null && rateLimitSecRef.current > 0) return;
+
     setStatus('reading');
     setError(null);
     setPayload(null);
@@ -312,31 +320,6 @@ export function useScore(): {
 
     const proxyAddress = import.meta.env.VITE_SCORE_NFT_PROXY as `0x${string}`;
     if (!proxyAddress) { setError('VITE_SCORE_NFT_PROXY not set'); setStatus('error'); return; }
-
-    try {
-      const rpc = createPublicClient({ chain: PAS_TESTNET, transport: http(RPC_URL) });
-      const [scoreData, refreshAt] = await Promise.all([
-        rpc.readContract({
-          address:      proxyAddress,
-          abi:          [{ name: 'getScore', type: 'function', stateMutability: 'view', inputs: [{ name: 'wallet', type: 'address' }], outputs: [{ name: 'score', type: 'uint16' }, { name: 'issuedAt', type: 'uint64' }, { name: 'expiresAt', type: 'uint64' }, { name: 'dataHash', type: 'bytes32' }, { name: 'isValid', type: 'bool' }, { name: 'exists', type: 'bool' }] }] as const,
-          functionName: 'getScore',
-          args:         [walletAddress as `0x${string}`],
-        }),
-        rpc.readContract({
-          address:      proxyAddress,
-          abi:          [{ name: 'refreshAvailableAt', type: 'function', stateMutability: 'view', inputs: [{ name: 'wallet', type: 'address' }], outputs: [{ type: 'uint64' }] }] as const,
-          functionName: 'refreshAvailableAt',
-          args:         [walletAddress as `0x${string}`],
-        }),
-      ]);
-      const [, , , , isValid, exists] = scoreData as [number, bigint, bigint, string, boolean, boolean];
-      const refreshAvailable          = Number(refreshAt as bigint);
-      if (exists && isValid && refreshAvailable > Math.floor(Date.now() / 1_000)) {
-        setCooldownTs(refreshAvailable);
-        setStatus('cooldown');
-        return;
-      }
-    } catch { /**/ }
 
     try {
       setStatus('scoring');
@@ -373,7 +356,24 @@ export function useScore(): {
         return;
       }
 
-      if (!res.ok || !json.success) throw new Error(json.error ?? 'Scoring failed. Please try again.');
+      // Also detect rate limit from non-429 responses (backend quirks)
+      if (!res.ok || !json.success) {
+        const msg = json.error ?? 'Scoring failed. Please try again.';
+        const isRateMsg = msg.toLowerCase().includes('rate limit') || msg.toLowerCase().includes('try again in');
+        if (isRateMsg) {
+          // Parse seconds: "Try again in 1 hour" → 3600
+          let secs = json.waitSec ?? 3600;
+          const hourM = msg.match(/(\d+)\s*hour/i);
+          const minM  = msg.match(/(\d+)\s*min/i);
+          if (hourM) secs = parseInt(hourM[1]) * 3600;
+          else if (minM) secs = parseInt(minM[1]) * 60;
+          setRateLimitSec(secs);
+          setError(`rate_limited:${secs}`);
+          setStatus('error');
+          return;
+        }
+        throw new Error(msg);
+      }
 
       const data = json.data as ScorePayload;
       pendingData.current = data;

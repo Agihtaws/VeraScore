@@ -1,20 +1,20 @@
 import { useBlockNumber }         from 'wagmi';
-import { useTotalScored }         from '../hooks/useTotalScored.js';
-import { pasTestnet, SCORE_NFT_PROXY } from '../utils/wagmi.js';
+import { useTotalScored }         from '../hooks/useTotalScored'; // Removed .js pa!
+import { pasTestnet, SCORE_NFT_PROXY } from '../utils/wagmi'; // Removed .js pa!
 
 const EXPLORER = 'https://polkadot.testnet.routescan.io';
 
 export type Page = 'home' | 'lookup' | 'lending' | 'leaderboard' | 'send' | 'stables' | 'fees' | 'wallet';
 
 export const NAV: { id: Page; icon: string; label: string; badge?: string }[] = [
-  { id: 'home',    icon: '◈', label: 'Score'    },
+  { id: 'home',        icon: '◈', label: 'Score'    },
   { id: 'lookup',      icon: '⌕', label: 'Lookup'      },
   { id: 'leaderboard', icon: '🏆', label: 'Leaderboard' },
-  { id: 'lending', icon: '⬡', label: 'Lending'  },
-  { id: 'send',    icon: '↑', label: 'Send PAS'   },
-  { id: 'stables', icon: '◎', label: 'Send USDT',  badge: 'NEW' },
-  { id: 'fees',    icon: '⛽', label: 'Fee Calc'  },
-  { id: 'wallet',  icon: '⊕', label: 'New Wallet', badge: 'NEW' },
+  { id: 'lending',     icon: '⬡', label: 'Lending'  },
+  { id: 'send',        icon: '↑', label: 'Send PAS'   },
+  { id: 'stables',     icon: '◎', label: 'Send USDT',  badge: 'NEW' },
+  { id: 'fees',        icon: '⛽', label: 'Fee Calc'  },
+  { id: 'wallet',      icon: '⊕', label: 'New Wallet', badge: 'NEW' },
 ];
 
 interface SidebarProps {
@@ -23,49 +23,51 @@ interface SidebarProps {
 }
 
 export function Sidebar({ page, onNavigate }: SidebarProps) {
+  // Polling every 6s to match Paseo block times pa!
   const { data: blockNumber } = useBlockNumber({
     chainId: pasTestnet.id,
     query:   { refetchInterval: 6_000 },
   });
+  
   const totalScored = useTotalScored();
 
   return (
-    <div className="flex flex-col h-full">
+    <div className="flex flex-col h-full bg-polkadot-card border-r border-polkadot-border shadow-2xl">
 
-      {/* Logo */}
-      <div className="px-5 py-5 border-b border-polkadot-border">
+      {/* Logo Section */}
+      <div className="px-6 py-6 border-b border-polkadot-border bg-white/5">
         <button
           onClick={() => onNavigate('home')}
-          className="flex items-center gap-3 hover:opacity-80 transition-opacity w-full text-left"
+          className="flex items-center gap-4 hover:opacity-80 transition-all w-full text-left group"
         >
-          <div className="w-9 h-9 bg-polkadot-pink rounded-xl flex items-center justify-center text-base font-bold shrink-0">
+          <div className="w-10 h-10 bg-polkadot-pink rounded-2xl flex items-center justify-center text-lg font-black shrink-0 shadow-[0_0_15px_rgba(230,0,122,0.3)] group-hover:scale-105 transition-transform">
             V
           </div>
           <div>
-            <div className="font-bold text-sm tracking-tight text-white">VeraScore</div>
-            <div className="text-[10px] text-gray-500">AI Credit · Polkadot Hub</div>
+            <div className="font-black text-sm tracking-tighter text-white uppercase">VeraScore</div>
+            <div className="text-[9px] text-gray-500 font-bold uppercase tracking-widest">Polkadot Hub</div>
           </div>
         </button>
       </div>
 
-      {/* Nav */}
-      <nav className="flex-1 px-3 py-4 space-y-1 overflow-y-auto">
+      {/* Navigation Links */}
+      <nav className="flex-1 px-4 py-6 space-y-2 overflow-y-auto scrollbar-none">
         {NAV.map(({ id, icon, label, badge }) => (
           <button
             key={id}
             onClick={() => onNavigate(id)}
-            className={`w-full text-left flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm transition-colors border ${
+            className={`w-full text-left flex items-center gap-4 px-4 py-3 rounded-2xl text-sm transition-all border ${
               page === id
-                ? 'bg-polkadot-pink/15 text-white border-polkadot-pink/30 font-medium'
-                : 'border-transparent text-gray-400 hover:text-white hover:bg-white/5'
+                ? 'bg-polkadot-pink/10 text-white border-polkadot-pink/30 font-bold shadow-inner'
+                : 'border-transparent text-gray-500 hover:text-gray-200 hover:bg-white/5'
             }`}
           >
-            <span className={`text-base w-5 text-center shrink-0 ${page === id ? 'text-polkadot-pink' : ''}`}>
+            <span className={`text-lg w-6 text-center shrink-0 ${page === id ? 'text-polkadot-pink drop-shadow-[0_0_5px_rgba(230,0,122,0.5)]' : ''}`}>
               {icon}
             </span>
-            <span className="flex-1">{label}</span>
+            <span className="flex-1 tracking-tight">{label}</span>
             {badge && (
-              <span className="text-[9px] bg-polkadot-pink text-white px-1.5 py-0.5 rounded-full font-semibold leading-none">
+              <span className="text-[8px] bg-polkadot-pink text-white px-2 py-0.5 rounded-full font-black tracking-tighter shadow-sm">
                 {badge}
               </span>
             )}
@@ -73,31 +75,40 @@ export function Sidebar({ page, onNavigate }: SidebarProps) {
         ))}
       </nav>
 
-      {/* Chain status */}
-      <div className="px-4 py-4 border-t border-polkadot-border space-y-2">
-        <div className="flex items-center gap-2 text-[11px]">
-          <span className="inline-block w-1.5 h-1.5 rounded-full bg-green-500 animate-pulse shrink-0" />
-          <span className="text-gray-400">PAS TestNet</span>
-          <span className="text-polkadot-border">·</span>
-          <span className="text-gray-500">ID {pasTestnet.id}</span>
+      {/* Chain Status Footer */}
+      <div className="px-6 py-6 border-t border-polkadot-border bg-black/20 space-y-3">
+        <div className="flex items-center gap-2">
+          <span className="relative flex h-2 w-2">
+            <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+            <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
+          </span>
+          <span className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">PAS TestNet</span>
+          <span className="text-gray-700 font-mono text-[10px]">#{pasTestnet.id}</span>
         </div>
-        {blockNumber !== undefined && (
-          <div className="text-[11px] text-gray-600 font-mono">
-            Block #{blockNumber.toLocaleString()}
-          </div>
-        )}
-        {totalScored !== null && (
-          <div className="text-[11px] text-gray-600">
-            {totalScored} wallet{totalScored !== 1 ? 's' : ''} scored
-          </div>
-        )}
+
+        <div className="space-y-1">
+          {blockNumber !== undefined && (
+            <div className="text-[10px] text-gray-500 font-mono flex justify-between">
+              <span className="text-gray-700">BLOCK</span>
+              <span className="text-gray-400 font-bold">{blockNumber.toLocaleString()}</span>
+            </div>
+          )}
+          {totalScored !== null && (
+            <div className="text-[10px] text-gray-500 font-mono flex justify-between">
+              <span className="text-gray-700">SCORED</span>
+              <span className="text-emerald-500 font-bold">{totalScored}</span>
+            </div>
+          )}
+        </div>
+
         <a
           href={`${EXPLORER}/address/${SCORE_NFT_PROXY}`}
           target="_blank"
           rel="noopener noreferrer"
-          className="block text-[10px] font-mono text-gray-700 hover:text-gray-500 transition-colors truncate"
+          className="flex items-center justify-between p-2 rounded-lg bg-black/40 border border-white/5 text-[9px] font-mono text-gray-500 hover:text-polkadot-pink hover:border-polkadot-pink/30 transition-all"
         >
-          {SCORE_NFT_PROXY?.slice(0, 14)}…{SCORE_NFT_PROXY?.slice(-6)} ↗
+          <span className="truncate">{SCORE_NFT_PROXY?.slice(0, 10)}...{SCORE_NFT_PROXY?.slice(-4)}</span>
+          <span className="shrink-0 ml-1">↗</span>
         </a>
       </div>
     </div>

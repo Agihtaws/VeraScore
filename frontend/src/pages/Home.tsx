@@ -96,6 +96,23 @@ export function Home({ onNavigate }: Props) {
   const { status, payload, error, cooldownTs, gasEstimate, rateLimitSec, hasCachedPayload, requestScore, retryMint, reset } = useScore();
   const totalScored = useTotalScored();
 
+  // ── Rate limit helpers (computed, not inside JSX) ─────────────────────────
+  const isRateLimitError = !!error && (
+    error.startsWith('rate_limited:') ||
+    error.toLowerCase().includes('rate limit') ||
+    error.toLowerCase().includes('rate limited') ||
+    error.toLowerCase().includes('try again in')
+  );
+  const rateLimitDisplaySec = (() => {
+    if (rateLimitSec !== null && rateLimitSec > 0) return rateLimitSec;
+    if (!isRateLimitError || !error) return null;
+    const hourM = error.match(/([0-9]+)\s*hour/i);
+    const minM  = error.match(/([0-9]+)\s*min/i);
+    if (hourM) return parseInt(hourM[1]) * 3600;
+    if (minM)  return parseInt(minM[1])  * 60;
+    return 3600;
+  })();
+
   // ── Full score history (fetched after mint) ────────────────────────────────
   const [fullHistory, setFullHistory] = useState<HistoryRecord[]>([]);
   useEffect(() => {
@@ -131,9 +148,7 @@ export function Home({ onNavigate }: Props) {
     if (status === 'scoring') {
       setScoringStart(Date.now());
       setElapsed(0);
-    } else {
-      setScoringStart(null);
-    }
+    } else setScoringStart(null);
   }, [status]);
   useEffect(() => {
     if (!scoringStart) return;
@@ -188,55 +203,53 @@ export function Home({ onNavigate }: Props) {
           {/* Glow */}
           <div className="absolute top-0 left-1/2 -translate-x-1/2 w-[600px] h-[300px] bg-polkadot-pink opacity-[0.06] rounded-full blur-3xl pointer-events-none" />
 
-          <div className="relative max-w-7xl mx-auto px-4 sm:px-6 lg:px-10 py-20 sm:py-28 text-center space-y-8">
+          <div className="relative max-w-5xl mx-auto px-4 sm:px-6 lg:px-10 py-14 sm:py-20 text-center space-y-6">
 
             {/* Badge */}
-            <div className="inline-flex items-center gap-2 bg-polkadot-card border border-polkadot-border rounded-full px-4 py-1.5 text-xs text-gray-400">
-              <span className="w-2 h-2 rounded-full bg-polkadot-pink inline-block animate-pulse" />
-              Live on PAS TestNet · Chain ID 420420417
+            <div className="inline-flex items-center gap-2 bg-polkadot-card border border-polkadot-border rounded-full px-4 py-1.5 text-[10px] text-gray-400 uppercase tracking-widest font-bold">
+              <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 inline-block animate-pulse" />
+              Paseo Asset Hub · Live v2.0
             </div>
 
             {/* Headline */}
-            <h1 className="text-4xl sm:text-5xl lg:text-6xl font-bold leading-tight tracking-tight">
-              On-Chain Credit Scoring<br />
-              <span className="text-polkadot-pink">for Polkadot</span>
+            <h1 className="text-4xl sm:text-5xl font-bold leading-tight tracking-tight">
+              The Protocol for<br />
+              <span className="text-polkadot-pink">On-Chain Credit</span>
             </h1>
 
-            {/* Two-sentence description */}
-            <p className="text-gray-400 text-lg sm:text-xl leading-relaxed max-w-2xl mx-auto">
-              VeraScore mints your Polkadot wallet history as a permanent, soulbound NFT credential
-              scored 0–1000 by Mistral AI.{' '}
-              Any DeFi protocol can verify your creditworthiness in a single API call —
-              no oracles, no manual review, nothing that can go down.
+            {/* Description */}
+            <p className="text-gray-400 text-base sm:text-lg leading-relaxed max-w-2xl mx-auto">
+              VeraScore transforms your Substrate history into a verifiable credit profile.
+              Scored <strong className="text-white">0–1100</strong> by Mistral AI and secured as a native Soulbound NFT.
             </p>
 
             {/* CTA */}
             <div className="flex flex-col sm:flex-row items-center justify-center gap-3 pt-2">
               <button
                 onClick={() => connect({ connector: injected() })}
-                className="w-full sm:w-auto bg-polkadot-pink hover:bg-pink-600 text-white font-semibold px-8 py-3.5 rounded-xl transition-colors text-base"
+                className="w-full sm:w-auto bg-polkadot-pink hover:bg-pink-600 text-white font-bold px-8 py-3 rounded-xl transition-colors text-sm uppercase tracking-widest"
               >
-                Get My Score →
+                Establish Identity →
               </button>
               <button
                 onClick={() => onNavigate('lookup')}
-                className="w-full sm:w-auto border border-polkadot-border hover:border-gray-500 text-gray-300 hover:text-white font-medium px-8 py-3.5 rounded-xl transition-colors text-base"
+                className="w-full sm:w-auto border border-polkadot-border hover:border-gray-500 text-gray-300 hover:text-white font-medium px-8 py-3 rounded-xl transition-colors text-sm"
               >
-                Look Up a Wallet
+                Public Lookup
               </button>
             </div>
 
             {/* Stats */}
-            <div className="flex flex-wrap items-center justify-center gap-8 pt-4 text-sm text-gray-500">
+            <div className="flex flex-wrap items-center justify-center gap-8 pt-2">
               {[
-                ['0–1000', 'Score range'],
-                ['2 hours', 'NFT validity'],
-                ['5 minutes', 'Refresh cooldown'],
-                ['1 API call', 'Protocol integration'],
+                ['0–1100', 'Score range'],
+                ['2 hrs', 'NFT validity'],
+                ['5 min', 'Refresh cooldown'],
+                ['1 API call', 'DeFi integration'],
               ].map(([val, label]) => (
                 <div key={label} className="text-center">
                   <div className="text-white font-semibold text-base">{val}</div>
-                  <div className="text-gray-600 text-xs">{label}</div>
+                  <div className="text-gray-600 text-[10px] uppercase tracking-wide">{label}</div>
                 </div>
               ))}
             </div>
@@ -244,20 +257,20 @@ export function Home({ onNavigate }: Props) {
         </section>
 
         {/* Features */}
-        <section className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-10 py-16 sm:py-20 w-full">
-          <div className="text-center space-y-2 mb-12">
-            <h2 className="text-2xl sm:text-3xl font-bold">Why VeraScore</h2>
-            <p className="text-gray-500 text-sm">Built on Polkadot Hub · Powered by Mistral AI</p>
+        <section className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-10 py-10 sm:py-14 w-full">
+          <div className="text-center space-y-1 mb-8">
+            <h2 className="text-xl sm:text-2xl font-bold">Why VeraScore</h2>
+            <p className="text-gray-500 text-xs">Built on Polkadot Hub · Powered by Mistral AI</p>
           </div>
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
             {FEATURES.map(({ icon, title, desc }) => (
               <div
                 key={title}
-                className="bg-polkadot-card border border-polkadot-border rounded-2xl p-6 space-y-3 hover:border-gray-600 transition-colors"
+                className="bg-polkadot-card border border-polkadot-border rounded-xl p-4 space-y-2 hover:border-gray-600 transition-colors"
               >
-                <div className="text-3xl">{icon}</div>
-                <div className="font-semibold text-white">{title}</div>
-                <div className="text-gray-500 text-sm leading-relaxed">{desc}</div>
+                <div className="text-2xl">{icon}</div>
+                <div className="font-semibold text-white text-sm">{title}</div>
+                <div className="text-gray-500 text-xs leading-relaxed">{desc}</div>
               </div>
             ))}
           </div>
@@ -265,17 +278,17 @@ export function Home({ onNavigate }: Props) {
 
         {/* How it works */}
         <section className="border-t border-polkadot-border bg-polkadot-card/30">
-          <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-10 py-16 sm:py-20">
-            <div className="text-center space-y-2 mb-12">
-              <h2 className="text-2xl sm:text-3xl font-bold">How it works</h2>
-              <p className="text-gray-500 text-sm">Four steps from wallet to verified on-chain credential</p>
+          <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-10 py-10 sm:py-14">
+            <div className="text-center space-y-1 mb-8">
+              <h2 className="text-xl sm:text-2xl font-bold">How it works</h2>
+              <p className="text-gray-500 text-xs">Four steps from wallet to verified on-chain credential</p>
             </div>
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
               {HOW_IT_WORKS.map(([num, title, desc]) => (
-                <div key={num} className="relative space-y-3">
-                  <div className="text-polkadot-pink font-mono font-bold text-3xl">{num}</div>
-                  <div className="font-semibold text-white">{title}</div>
-                  <div className="text-gray-500 text-sm leading-relaxed">{desc}</div>
+                <div key={num} className="relative space-y-2">
+                  <div className="text-polkadot-pink font-mono font-bold text-2xl">{num}</div>
+                  <div className="font-semibold text-white text-sm">{title}</div>
+                  <div className="text-gray-500 text-xs leading-relaxed">{desc}</div>
                 </div>
               ))}
             </div>
@@ -395,7 +408,7 @@ export function Home({ onNavigate }: Props) {
             {/* Generate button */}
             <button
               onClick={() => requestScore(inputAddr)}
-              disabled={isLoading || isMismatch || !inputAddr.startsWith('0x') || inputAddr.length !== 42}
+              disabled={isLoading || isMismatch || !inputAddr.startsWith('0x') || inputAddr.length !== 42 || isRateLimitError}
               className="w-full bg-polkadot-pink hover:bg-pink-600 disabled:opacity-40 disabled:cursor-not-allowed text-white font-semibold py-3.5 rounded-xl transition-colors text-base"
             >
               {isLoading ? (
@@ -547,131 +560,106 @@ export function Home({ onNavigate }: Props) {
         )}
 
         {/* Error */}
-        {status === 'error' && error && (
-          error.startsWith('rate_limited:') ? (
-            // ── Rate limit card — polished, not scary ──────────────────────
-            <div className="bg-polkadot-card border border-polkadot-border rounded-2xl p-6 text-center space-y-4">
-              <div className="w-14 h-14 rounded-full bg-orange-950 border border-orange-800 flex items-center justify-center text-2xl mx-auto">
-                ⏳
+        {/* ── Rate limit error ─────────────────────────────────────────────── */}
+        {status === 'error' && isRateLimitError && (
+          <div className="bg-polkadot-card border border-orange-800/50 rounded-2xl p-6 text-center space-y-4">
+            <div className="text-3xl">⏳</div>
+            <div className="space-y-1">
+              <div className="text-white font-bold text-base">Score Already Requested</div>
+              <div className="text-gray-400 text-xs max-w-xs mx-auto">
+                This wallet was recently scored. Wait for the cooldown before requesting again.
               </div>
-              <div className="space-y-1">
-                <div className="text-white font-semibold text-lg">Scoring in Progress</div>
-                <div className="text-gray-400 text-sm max-w-xs mx-auto">
-                  A score was recently requested for this wallet. Please wait before requesting again.
-                </div>
+            </div>
+            <div className="bg-orange-950/60 border border-orange-800/60 rounded-xl px-6 py-4 inline-block">
+              <div className="text-[9px] text-orange-400 uppercase tracking-widest font-bold mb-1">Try again in</div>
+              <div className="font-mono font-black text-orange-300 text-3xl tracking-tighter">
+                {rateLimitDisplaySec !== null && rateLimitDisplaySec > 0 ? formatWait(rateLimitDisplaySec) : 'now'}
               </div>
-              {rateLimitSec !== null && rateLimitSec > 0 && (
-                <div className="inline-flex items-center gap-2 bg-orange-950 border border-orange-800 rounded-xl px-4 py-2">
-                  <span className="text-orange-400 text-sm">Try again in</span>
-                  <span className="font-mono font-bold text-orange-300 text-sm">
-                    {formatWait(rateLimitSec)}
-                  </span>
-                </div>
-              )}
-              <button
-                onClick={reset}
-                className="block mx-auto text-xs text-gray-500 hover:text-gray-400 underline underline-offset-2 transition-colors"
-              >
+            </div>
+            <div>
+              <button onClick={reset} className="text-[10px] text-gray-600 hover:text-gray-400 underline underline-offset-2 transition-colors">
                 Dismiss
               </button>
             </div>
-          ) : error === 'retry_available' ? (
-            // ── Score was generated but tx never confirmed — offer retry ───
-            <div className="bg-polkadot-card border border-yellow-700 rounded-2xl p-6 text-center space-y-4">
-              <div className="w-14 h-14 rounded-full bg-yellow-950 border border-yellow-700 flex items-center justify-center text-2xl mx-auto">
-                ⚡
+          </div>
+        )}
+
+        {/* ── Retry available (score generated, mint pending) ───────────────── */}
+        {status === 'error' && error === 'retry_available' && (
+          <div className="bg-polkadot-card border border-yellow-700 rounded-2xl p-6 text-center space-y-4">
+            <div className="text-2xl">⚡</div>
+            <div className="space-y-1">
+              <div className="text-white font-semibold text-base">Score Ready — Mint Pending</div>
+              <div className="text-gray-400 text-xs max-w-xs mx-auto">
+                Score generated but mint didn't complete. Reopen MetaMask to finish.
               </div>
-              <div className="space-y-1">
-                <div className="text-white font-semibold text-lg">Score Ready — Mint Pending</div>
-                <div className="text-gray-400 text-sm max-w-xs mx-auto">
-                  Your score was generated successfully but the mint transaction didn't complete.
-                  Your signed payload is still valid — reopen MetaMask to finish.
-                </div>
-              </div>
-              <button
-                onClick={() => retryMint()}
-                className="w-full bg-polkadot-pink hover:bg-pink-600 text-white font-semibold py-2.5 rounded-xl transition-colors text-sm"
-              >
-                ↻ Reopen MetaMask — finish minting
-              </button>
-              <button
-                onClick={reset}
-                className="block mx-auto text-xs text-gray-500 hover:text-gray-400 underline underline-offset-2 transition-colors"
-              >
-                Start over instead
-              </button>
             </div>
-          ) : (
-            // ── Generic error card ──────────────────────────────────────────
-            <div className="bg-red-950 border border-red-800 rounded-2xl p-5 space-y-3">
-              <div className="flex items-start gap-3">
-                <span className="text-red-400 text-lg mt-0.5">⚠</span>
-                <div className="space-y-1 flex-1">
-                  <div className="text-red-300 text-sm font-medium">Something went wrong</div>
-                  <div className="text-red-400/80 text-xs leading-relaxed">{error}</div>
-                </div>
+            <button onClick={() => retryMint()} className="w-full bg-polkadot-pink hover:bg-pink-600 text-white font-semibold py-2.5 rounded-xl transition-colors text-sm">
+              ↻ Reopen MetaMask — finish minting
+            </button>
+            <button onClick={reset} className="block mx-auto text-xs text-gray-500 hover:text-gray-400 underline underline-offset-2 transition-colors">
+              Start over instead
+            </button>
+          </div>
+        )}
+
+        {/* ── Generic error ─────────────────────────────────────────────────── */}
+        {status === 'error' && error && !isRateLimitError && error !== 'retry_available' && (
+          <div className="bg-red-950 border border-red-800 rounded-2xl p-5 space-y-3">
+            <div className="flex items-start gap-3">
+              <span className="text-red-400 text-lg mt-0.5">⚠</span>
+              <div className="space-y-1 flex-1">
+                <div className="text-red-300 text-sm font-medium">Something went wrong</div>
+                <div className="text-red-400/80 text-xs leading-relaxed">{error}</div>
               </div>
-              {hasCachedPayload ? (
-                <div className="space-y-2">
-                  <button
-                    onClick={() => retryMint()}
-                    className="w-full text-xs bg-polkadot-pink hover:bg-pink-600 text-white py-2.5 px-4 rounded-lg transition-colors font-medium"
-                  >
-                    ↻ Retry mint — reopen MetaMask
-                  </button>
-                  <button
-                    onClick={reset}
-                    className="w-full text-xs bg-red-900 hover:bg-red-800 text-red-300 py-2 px-4 rounded-lg transition-colors"
-                  >
-                    Start over (re-score)
-                  </button>
-                </div>
-              ) : (
-                <button
-                  onClick={reset}
-                  className="w-full text-xs bg-red-900 hover:bg-red-800 text-red-300 py-2 px-4 rounded-lg transition-colors"
-                >
-                  Try again
+            </div>
+            {hasCachedPayload ? (
+              <div className="space-y-2">
+                <button onClick={() => retryMint()} className="w-full text-xs bg-polkadot-pink hover:bg-pink-600 text-white py-2.5 px-4 rounded-lg transition-colors font-medium">
+                  ↻ Retry mint — reopen MetaMask
                 </button>
-              )}
-            </div>
-          )
+                <button onClick={reset} className="w-full text-xs bg-red-900 hover:bg-red-800 text-red-300 py-2 px-4 rounded-lg transition-colors">
+                  Start over (re-score)
+                </button>
+              </div>
+            ) : (
+              <button onClick={reset} className="w-full text-xs bg-red-900 hover:bg-red-800 text-red-300 py-2 px-4 rounded-lg transition-colors">
+                Try again
+              </button>
+            )}
+          </div>
         )}
 
         {/* Cooldown */}
-        {status === 'cooldown' && cooldownTs !== null && (
-          <div className="bg-polkadot-card border border-polkadot-border rounded-2xl p-8 text-center space-y-6">
-            <div className="w-16 h-16 rounded-full bg-yellow-950 border border-yellow-800 flex items-center justify-center text-3xl mx-auto">
-              🔒
-            </div>
+        {status === 'cooldown' && (
+          <div className="bg-polkadot-card border border-yellow-800/50 rounded-2xl p-6 text-center space-y-4">
+            <div className="text-3xl">🔒</div>
             <div className="space-y-1">
-              <div className="text-white font-semibold text-xl">Score Refresh Locked</div>
-              <div className="text-gray-400 text-sm max-w-sm mx-auto">
-                Your score NFT was already minted on-chain. The 7-day cooldown prevents score manipulation.
+              <div className="text-white font-bold text-base">Score Already Valid</div>
+              <div className="text-gray-400 text-xs max-w-sm mx-auto">
+                Your VeraScore NFT is still active on-chain. You can refresh it after the cooldown period.
               </div>
             </div>
-            <div className="bg-yellow-950 border border-yellow-800 rounded-xl px-5 py-4 space-y-1">
-              <div className="text-yellow-300 text-xs uppercase tracking-widest">Refresh available</div>
-              <div className="text-yellow-200 font-semibold text-base">{fmt(cooldownTs)}</div>
-              <div className="text-yellow-400 font-mono text-2xl font-bold tracking-tight">
-                {liveRemaining(cooldownTs)}
+            {cooldownTs && cooldownTs > 0 ? (
+              <div className="bg-yellow-950/60 border border-yellow-800/60 rounded-xl px-6 py-4 inline-block">
+                <div className="text-[9px] text-yellow-400 uppercase tracking-widest font-bold mb-1">Refresh available</div>
+                <div className="font-mono font-black text-yellow-300 text-2xl tracking-tighter">
+                  {liveRemaining(cooldownTs)}
+                </div>
+                <div className="text-yellow-600 text-[10px] mt-1">{fmt(cooldownTs)}</div>
               </div>
-              <div className="text-yellow-600 text-xs">remaining</div>
-            </div>
-            <div className="text-gray-400 text-sm">
-              Your current score is visible in the{' '}
-              <button
-                onClick={() => onNavigate('lookup')}
-                className="text-polkadot-pink hover:text-pink-400 underline"
-              >
+            ) : (
+              <div className="bg-green-950/60 border border-green-800/60 rounded-xl px-6 py-3 inline-block">
+                <div className="text-green-300 text-sm font-bold">✓ Refresh available now</div>
+              </div>
+            )}
+            <div className="text-gray-400 text-xs">
+              View your current score in the{' '}
+              <button onClick={() => onNavigate('lookup')} className="text-polkadot-pink hover:text-pink-400 underline">
                 Lookup
-              </button>{' '}
-              tab.
+              </button>{' '}tab.
             </div>
-            <button
-              onClick={reset}
-              className="w-full border border-polkadot-border hover:border-gray-500 text-gray-400 hover:text-white text-sm py-2.5 rounded-xl transition-colors"
-            >
+            <button onClick={reset} className="w-full border border-polkadot-border hover:border-gray-500 text-gray-400 hover:text-white text-sm py-2 rounded-xl transition-colors">
               Back
             </button>
           </div>

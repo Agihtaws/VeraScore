@@ -4,18 +4,18 @@ import {
   useChainId, useSwitchChain, useBlockNumber, useBalance,
 } from 'wagmi';
 import { injected }          from 'wagmi/connectors';
-import { Sidebar }           from './components/Sidebar.js';
-import type { Page }         from './components/Sidebar.js';
-import { NAV }               from './components/Sidebar.js';
-import { Home }              from './pages/Home.js';
-import { Lookup }            from './pages/Lookup.js';
-import { LendingDemo }       from './pages/LendingDemo.js';
-import { SendPAS }           from './pages/SendPAS.js';
-import { FeeCalculator }     from './pages/FeeCalculator.js';
-import { Leaderboard }      from './pages/Leaderboard.js';
-import { CreateWallet }     from './pages/CreateWallet.js';
-import { SendStablecoin }   from './pages/SendStablecoin.js';
-import { pasTestnet, SCORE_NFT_PROXY } from './utils/wagmi.js';
+import { Sidebar }           from './components/Sidebar';
+import type { Page }         from './components/Sidebar';
+import { NAV }               from './components/Sidebar';
+import { Home }              from './pages/Home';
+import { Lookup }            from './pages/Lookup';
+import { LendingDemo }       from './pages/LendingDemo';
+import { SendPAS }           from './pages/SendPAS';
+import { FeeCalculator }     from './pages/FeeCalculator';
+import { Leaderboard }       from './pages/Leaderboard';
+import { CreateWallet }      from './pages/CreateWallet';
+import { SendStablecoin }    from './pages/SendStablecoin';
+import { pasTestnet, SCORE_NFT_PROXY } from './utils/wagmi';
 
 const EXPLORER = 'https://polkadot.testnet.routescan.io';
 
@@ -26,11 +26,20 @@ export default function App() {
   const chainId                  = useChainId();
   const { switchChain }          = useSwitchChain();
 
+  // ── PAS balance — refetchInterval polls every 6s via React Query ────────────
+  // NOTE: do NOT use watch:true — with HTTP transport + custom chain it can
+  //       silently fail. query.refetchInterval is reliable for all networks.
   const { data: balData, refetch: refetchBal } = useBalance({
     address,
     chainId: pasTestnet.id,
-    query:   { refetchInterval: 4_000 },
+    query: {
+      enabled:         !!address,  // don't fire until wallet is connected
+      refetchInterval: 6_000,      // poll every 6s
+      staleTime:       0,          // always treat cached value as stale → refetch immediately
+      retry:           3,          // retry up to 3 times on RPC error
+    },
   });
+
   const balNum   = balData ? Number(balData.value) / 1e18 : null;
   const balShort = balNum !== null
     ? balNum.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + ' PAS'
@@ -38,6 +47,18 @@ export default function App() {
   const balFull  = balNum !== null
     ? balNum.toLocaleString('en-US', { minimumFractionDigits: 4, maximumFractionDigits: 4 }) + ' PAS'
     : '—';
+
+  // ── Block number — query.refetchInterval works reliably on HTTP transports ───
+  // watch:true uses watchBlockNumber (needs WebSocket/long-poll) and silently
+  // fails for custom chains on plain HTTP. Use refetchInterval instead.
+  const { data: blockNumber } = useBlockNumber({
+    chainId: pasTestnet.id,
+    query: {
+      refetchInterval: 4_000,   // poll every 4s
+      staleTime:       0,
+      retry:           3,
+    },
+  });
 
   const [page,        setPage]        = useState<Page>('home');
   const [sidebarOpen, setSidebarOpen] = useState(false);
@@ -47,35 +68,20 @@ export default function App() {
   const walletRef  = useRef<HTMLDivElement>(null);
   const sidebarRef = useRef<HTMLDivElement>(null);
 
+  // Close dropdowns on outside click
   useEffect(() => {
     function onOut(e: MouseEvent) {
-      if (walletRef.current && !walletRef.current.contains(e.target as Node))
-        setWalletOpen(false);
+      if (walletRef.current  && !walletRef.current.contains(e.target  as Node)) setWalletOpen(false);
+      if (sidebarRef.current && !sidebarRef.current.contains(e.target as Node)) setSidebarOpen(false);
     }
     document.addEventListener('mousedown', onOut);
     return () => document.removeEventListener('mousedown', onOut);
-  }, []);
-
-  useEffect(() => {
-    function onOut(e: MouseEvent) {
-      if (sidebarRef.current && !sidebarRef.current.contains(e.target as Node))
-        setSidebarOpen(false);
-    }
-    document.addEventListener('mousedown', onOut);
-    return () => document.removeEventListener('mousedown', onOut);
-  }, []);
-
-  useEffect(() => {
-    function onKey(e: KeyboardEvent) {
-      if (e.key === 'Escape') { setSidebarOpen(false); setWalletOpen(false); }
-    }
-    document.addEventListener('keydown', onKey);
-    return () => document.removeEventListener('keydown', onKey);
   }, []);
 
   const navigate = useCallback((p: Page) => {
     setPage(p);
     setSidebarOpen(false);
+    window.scrollTo(0, 0);
   }, []);
 
   function copyAddress() {
@@ -86,148 +92,121 @@ export default function App() {
     });
   }
 
-  const { data: blockNumber } = useBlockNumber({
-    chainId: pasTestnet.id,
-    query:   { refetchInterval: 6_000 },
-  });
-
   const isWrongNetwork = isConnected && chainId !== pasTestnet.id;
 
   return (
-    <div className="min-h-screen bg-polkadot-dark text-white flex">
+    <div className="min-h-screen bg-polkadot-dark text-white flex font-sans">
 
-      {/* Desktop sidebar */}
-      <aside className="hidden lg:flex flex-col w-56 shrink-0 border-r border-polkadot-border bg-polkadot-card fixed top-0 left-0 h-full z-30">
+      {/* ── Desktop sidebar ───────────────────────────────────────────────── */}
+      <aside className="hidden lg:flex flex-col w-64 shrink-0 border-r border-polkadot-border bg-polkadot-card fixed top-0 left-0 h-full z-30 shadow-2xl">
         <Sidebar page={page} onNavigate={navigate} />
       </aside>
 
-      {/* Mobile sidebar overlay */}
+      {/* ── Mobile sidebar overlay ────────────────────────────────────────── */}
       {sidebarOpen && (
         <div className="fixed inset-0 z-40 lg:hidden">
           <div
-            className="absolute inset-0 bg-black/60"
+            className="absolute inset-0 bg-black/80 backdrop-blur-sm"
             onClick={() => setSidebarOpen(false)}
           />
           <aside
             ref={sidebarRef}
-            className="absolute left-0 top-0 h-full w-56 bg-polkadot-card border-r border-polkadot-border z-50"
+            className="absolute left-0 top-0 h-full w-64 bg-polkadot-card border-r border-polkadot-border z-50"
           >
             <Sidebar page={page} onNavigate={navigate} />
           </aside>
         </div>
       )}
 
-      {/* Main content */}
-      <div className="flex-1 flex flex-col min-h-screen lg:ml-56">
+      {/* ── Main content ──────────────────────────────────────────────────── */}
+      <div className="flex-1 flex flex-col min-h-screen lg:ml-64">
 
-        {/* Topbar */}
-        <header className="sticky top-0 z-20 border-b border-polkadot-border bg-polkadot-dark/95 backdrop-blur px-4 sm:px-6 py-3 flex items-center justify-between shrink-0">
-          <div className="flex items-center gap-3">
+        {/* ── Header ──────────────────────────────────────────────────────── */}
+        <header className="sticky top-0 z-20 border-b border-polkadot-border bg-polkadot-dark/80 backdrop-blur-xl px-4 sm:px-8 py-4 flex items-center justify-between">
+
+          <div className="flex items-center gap-4">
+            {/* Mobile hamburger */}
             <button
               onClick={() => setSidebarOpen(o => !o)}
-              className="lg:hidden p-1.5 rounded-lg hover:bg-white/5 text-gray-400 hover:text-white transition-colors"
-              aria-label="Toggle sidebar"
+              className="lg:hidden p-2 rounded-xl bg-white/5 border border-white/10 text-gray-400 hover:text-white transition-all"
             >
-              <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+              <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
                 <path strokeLinecap="round" strokeLinejoin="round" d="M4 6h16M4 12h16M4 18h16" />
               </svg>
             </button>
-            <div className="text-sm font-medium text-gray-300 hidden sm:block">
+
+            {/* Current page label */}
+            <div className="text-xs font-black uppercase tracking-[0.2em] text-gray-500 hidden sm:block">
               {NAV.find(n => n.id === page)?.label}
             </div>
           </div>
 
-          <div className="flex items-center gap-2">
-            <div className="hidden sm:flex items-center gap-2 text-[11px] text-gray-500 border border-polkadot-border rounded-lg px-3 py-1.5 font-mono bg-polkadot-card">
-              <span className="inline-block w-1.5 h-1.5 rounded-full bg-green-500 animate-pulse" />
-              <span>PAS TestNet</span>
-              {blockNumber !== undefined && (
-                <><span className="text-polkadot-border">·</span><span>#{blockNumber.toLocaleString()}</span></>
+          <div className="flex items-center gap-3">
+
+            {/* ── Network + live block pill ──────────────────────────────── */}
+            <div className="hidden md:flex items-center gap-2 text-[9px] font-black uppercase tracking-widest text-gray-500 border border-polkadot-border rounded-lg px-3 py-1.5 bg-black/20">
+              <span className="relative flex h-1.5 w-1.5 shrink-0">
+                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75" />
+                <span className="relative inline-flex rounded-full h-1.5 w-1.5 bg-emerald-500" />
+              </span>
+              <span>PAS HUB</span>
+              {blockNumber !== undefined ? (
+                <span className="text-gray-400 font-mono">#{blockNumber.toLocaleString()}</span>
+              ) : (
+                <span className="text-gray-700 animate-pulse">syncing…</span>
               )}
             </div>
 
-            {isWrongNetwork && (
-              <button
-                onClick={() => switchChain({ chainId: pasTestnet.id })}
-                className="text-xs bg-yellow-500 hover:bg-yellow-400 text-black px-3 py-1.5 rounded-lg font-medium transition-colors"
-              >
-                Switch Network
-              </button>
-            )}
-
+            {/* ── Wallet button / dropdown ───────────────────────────────── */}
             {isConnected ? (
               <div ref={walletRef} className="relative">
                 <button
                   onClick={() => setWalletOpen(o => !o)}
-                  className={`flex items-center gap-2 text-xs border px-3 py-1.5 rounded-lg font-mono transition-colors ${
+                  className={`flex items-center gap-2 text-[11px] border px-3 py-1.5 rounded-lg font-mono transition-all ${
                     walletOpen
                       ? 'border-polkadot-pink text-white bg-polkadot-pink/10'
-                      : 'border-polkadot-border hover:border-gray-500 text-gray-300'
+                      : 'border-polkadot-border bg-white/5 text-gray-300'
                   }`}
                 >
-                  <span className="inline-block w-1.5 h-1.5 rounded-full bg-green-500 shrink-0" />
-                  <span className="text-polkadot-pink font-semibold hidden sm:inline">{balShort}</span>
-                  <span className="text-gray-400 hidden sm:inline text-[10px]">·</span>
+                  <span className="text-polkadot-pink font-black hidden sm:inline">
+                    {balNum !== null ? balShort : <span className="animate-pulse text-gray-600">···</span>}
+                  </span>
                   <span>{address!.slice(0, 6)}…{address!.slice(-4)}</span>
-                  <svg
-                    className={`w-3 h-3 transition-transform ${walletOpen ? 'rotate-180' : ''}`}
-                    fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}
-                  >
-                    <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
-                  </svg>
                 </button>
 
                 {walletOpen && (
-                  <div className="absolute right-0 mt-2 w-72 bg-polkadot-card border border-polkadot-border rounded-xl shadow-2xl z-50 overflow-hidden">
-                    <div className="px-4 py-3 border-b border-polkadot-border">
-                      <div className="text-[10px] text-gray-500 uppercase tracking-widest mb-1">Connected Wallet</div>
-                      <div className="font-mono text-xs text-gray-200 break-all">{address}</div>
-                    </div>
-                    <div className="px-4 py-3 border-b border-polkadot-border flex items-center justify-between">
-                      <div className="text-[10px] text-gray-500 uppercase tracking-widest">Balance</div>
-                      <div className="font-mono text-sm text-polkadot-pink font-bold">{balFull}</div>
-                    </div>
-                    <div className="px-4 py-2.5 border-b border-polkadot-border flex items-center justify-between">
-                      <div className="text-[10px] text-gray-500 uppercase tracking-widest">Network</div>
-                      <div className="text-[11px] flex items-center gap-1.5">
-                        {isWrongNetwork
-                          ? <span className="text-yellow-400">⚠ Wrong network</span>
-                          : <><span className="inline-block w-1.5 h-1.5 rounded-full bg-green-500" /><span className="text-gray-300">PAS TestNet</span></>
-                        }
+                  <div className="absolute right-0 mt-2 w-64 bg-polkadot-card border border-polkadot-border rounded-xl shadow-2xl z-50 overflow-hidden">
+                    <div className="p-4 space-y-3">
+
+                      <div>
+                        <div className="text-[9px] text-gray-600 font-black uppercase tracking-widest mb-1">Active Identity</div>
+                        <div className="font-mono text-[10px] text-white break-all bg-black/20 p-2 rounded-lg border border-white/5 leading-relaxed">
+                          {address}
+                        </div>
                       </div>
-                    </div>
-                    <div className="py-1">
-                      <button
-                        onClick={copyAddress}
-                        className="w-full text-left px-4 py-2.5 text-sm text-gray-300 hover:bg-polkadot-dark hover:text-white transition-colors flex items-center gap-3"
-                      >
-                        {copied
-                          ? <><span className="text-green-400">✓</span><span className="text-green-400">Copied!</span></>
-                          : <><span>📋</span><span>Copy address</span></>
-                        }
-                      </button>
-                      <a
-                        href={`${EXPLORER}/address/${address}`}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        onClick={() => setWalletOpen(false)}
-                        className="w-full text-left px-4 py-2.5 text-sm text-gray-300 hover:bg-polkadot-dark hover:text-white transition-colors flex items-center gap-3"
-                      >
-                        <span>↗</span><span>View on Explorer</span>
-                      </a>
-                      <button
-                        onClick={() => { navigate('send'); setWalletOpen(false); }}
-                        className="w-full text-left px-4 py-2.5 text-sm text-gray-300 hover:bg-polkadot-dark hover:text-white transition-colors flex items-center gap-3"
-                      >
-                        <span>↑</span><span>Send PAS</span>
-                      </button>
-                      <div className="border-t border-polkadot-border mx-4 my-1" />
+
+                      <div className="flex justify-between items-center border-t border-white/5 pt-3">
+                        <div>
+                          <div className="text-[9px] text-gray-600 font-black uppercase tracking-widest mb-0.5">Balance</div>
+                          <div className="font-mono text-sm font-black text-polkadot-pink">
+                            {balNum !== null ? balFull : <span className="animate-pulse text-gray-600 text-xs">Loading…</span>}
+                          </div>
+                        </div>
+                        <button
+                          onClick={copyAddress}
+                          className="text-[9px] font-black uppercase text-gray-500 hover:text-white transition-colors"
+                        >
+                          {copied ? '✓' : 'Copy'}
+                        </button>
+                      </div>
+
                       <button
                         onClick={() => { disconnect(); setWalletOpen(false); }}
-                        className="w-full text-left px-4 py-2.5 text-sm text-red-400 hover:bg-red-950 hover:text-red-300 transition-colors flex items-center gap-3"
+                        className="w-full px-3 py-2 rounded-lg bg-red-500/10 border border-red-500/20 text-red-400 text-[10px] font-black uppercase tracking-widest hover:bg-red-500 hover:text-white transition-all"
                       >
-                        <span>⏏</span><span>Disconnect</span>
+                        Disconnect
                       </button>
+
                     </div>
                   </div>
                 )}
@@ -235,55 +214,57 @@ export default function App() {
             ) : (
               <button
                 onClick={() => connect({ connector: injected() })}
-                className="bg-polkadot-pink hover:bg-pink-600 text-white text-sm px-4 py-2 rounded-lg font-medium transition-colors"
+                className="bg-polkadot-pink hover:bg-pink-600 text-white text-[10px] font-black uppercase tracking-widest px-6 py-2.5 rounded-xl transition-all shadow-lg"
               >
                 Connect Wallet
               </button>
             )}
+
           </div>
         </header>
 
-        {/* Wrong network banner */}
+        {/* ── Wrong network banner ─────────────────────────────────────────── */}
         {isWrongNetwork && (
-          <div className="flex items-center justify-between bg-yellow-900/40 border-b border-yellow-800/50 px-5 py-2.5 text-sm">
-            <span className="text-yellow-300 text-xs font-medium">
-              ⚠ Wrong network — switch to Polkadot Hub TestNet to transact
-            </span>
+          <div className="bg-yellow-500 text-black px-6 py-2 text-[10px] font-black uppercase tracking-widest flex items-center justify-center gap-4">
+            ⚠️ Network Mismatch — switch to Polkadot Hub TestNet
             <button
               onClick={() => switchChain({ chainId: pasTestnet.id })}
-              className="ml-4 shrink-0 bg-yellow-500 hover:bg-yellow-400 text-black font-bold px-3 py-1 rounded-lg text-xs transition"
+              className="bg-black text-white px-3 py-1 rounded-lg text-[9px] hover:opacity-80"
             >
-              Switch
+              Switch Now
             </button>
           </div>
         )}
 
-        {/* Page content */}
+        {/* ── Page content ────────────────────────────────────────────────── */}
         <main className="flex-1">
-          {page === 'home'    && <Home    onNavigate={navigate} />}
+          {page === 'home'        && <Home        onNavigate={navigate} />}
           {page === 'lookup'      && <Lookup />}
           {page === 'leaderboard' && <Leaderboard />}
-          {page === 'lending' && <LendingDemo />}
-          {page === 'send'    && <SendPAS onSuccess={() => refetchBal()} />}
-          {page === 'fees'    && <FeeCalculator />}
-          {page === 'stables' && <SendStablecoin />}
-          {page === 'wallet'  && <CreateWallet onNavigateHome={() => navigate('home')} />}
+          {page === 'lending'     && <LendingDemo />}
+          {page === 'send'        && <SendPAS     onSuccess={() => refetchBal()} />}
+          {page === 'fees'        && <FeeCalculator />}
+          {page === 'stables'     && <SendStablecoin />}
+          {page === 'wallet'      && <CreateWallet onNavigateHome={() => navigate('home')} />}
         </main>
 
-        {/* Footer */}
-        <footer className="border-t border-polkadot-border px-5 py-4 shrink-0">
-          <div className="flex flex-col sm:flex-row items-center justify-between gap-2 text-[11px] text-gray-700">
-            <span>VeraScore · AI Credit Scoring · Polkadot Hub PAS TestNet · Hackathon 2026</span>
+        {/* ── Footer ──────────────────────────────────────────────────────── */}
+        <footer className="border-t border-polkadot-border px-8 py-6 bg-black/20">
+          <div className="max-w-7xl mx-auto flex flex-col md:flex-row items-center justify-between gap-4">
+            <div className="text-[10px] font-black uppercase tracking-[0.3em] text-gray-600">
+              VeraScore Protocol v2.1
+            </div>
             <a
               href={`${EXPLORER}/address/${SCORE_NFT_PROXY}`}
               target="_blank"
               rel="noopener noreferrer"
-              className="hover:text-gray-500 font-mono transition-colors"
+              className="text-[9px] font-mono text-gray-700 hover:text-polkadot-pink transition-all"
             >
-              ScoreNFT: {SCORE_NFT_PROXY?.slice(0, 10)}…{SCORE_NFT_PROXY?.slice(-6)} ↗
+              PROXY: {SCORE_NFT_PROXY?.slice(0, 10)}…{SCORE_NFT_PROXY?.slice(-6)} ↗
             </a>
           </div>
         </footer>
+
       </div>
     </div>
   );

@@ -40,13 +40,14 @@ export interface ScorePayload {
   wallet:          string;
   score:           number;
   dataHash:        string;
-  txHash:          string;
+  signature:       string;
   deadline:        number;
   reasoning:       string;
   breakdown:       ScoreBreakdown;
   rawChainData:    RawChainData;
   alreadyHadScore: boolean;
 }
+
 
 export interface HistoryRecord {
   id:        number;

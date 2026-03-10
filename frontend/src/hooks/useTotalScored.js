@@ -1,5 +1,5 @@
 import { useReadContract } from 'wagmi';
-import { SCORE_NFT_PROXY } from '../utils/wagmi.js';
+import { SCORE_NFT_PROXY } from '../utils/wagmi'; // Removed .js pa!
 const ABI = [
     {
         name: 'totalScored',
@@ -9,9 +9,7 @@ const ABI = [
         outputs: [{ name: '', type: 'uint256' }],
     },
 ];
-// How often to re-read from chain (ms)
-// 12s ≈ two block times on PAS TestNet — keeps the number fresh
-// without hammering the RPC
+// 12s is exactly two block times on Paseo pa!
 const REFETCH_INTERVAL = 12_000;
 export function useTotalScored() {
     const { data } = useReadContract({
@@ -23,6 +21,7 @@ export function useTotalScored() {
             staleTime: REFETCH_INTERVAL,
         },
     });
+    // Simple check to handle the loading state
     if (data === undefined || data === null)
         return null;
     return Number(data);

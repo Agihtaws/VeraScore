@@ -2,8 +2,8 @@ import { ethers }               from 'ethers';
 import type { WalletChainData } from '../chain/papiReader.js';
 import type { ScoreResult }     from './mistralScorer.js';
 
-// Using the more stable RPC for the final signing check
-const RPC_URL  = 'https://pas-rpc.stakeworld.io'; 
+// Switch back to this RPC for signing because it supports contract calls pa!
+const RPC_URL  = 'https://services.polkadothub-rpc.com/testnet'; 
 const CHAIN_ID = 420420417;
 
 const SCORE_NFT_ABI = [
@@ -43,23 +43,17 @@ export async function buildSignedPayload(
   chainData:     WalletChainData
 ): Promise<SignedScorePayload> {
   const privateKey = process.env.ISSUER_PRIVATE_KEY;
-  if (!privateKey)  throw new Error('ISSUER_PRIVATE_KEY not set in .env');
-
   const proxyAddress = process.env.SCORE_NFT_PROXY;
-  if (!proxyAddress) throw new Error('SCORE_NFT_PROXY not set in .env');
 
   const normalizedWallet = walletAddress.toLowerCase();
-
-  // Added { staticNetwork: true } to keep the logs clean and fast!
   const provider = new ethers.JsonRpcProvider(RPC_URL, {
     chainId: CHAIN_ID,
     name:    'polkadot-testnet',
   }, { staticNetwork: true });
 
-  const issuerWallet = new ethers.Wallet(privateKey, provider);
-  const contract     = new ethers.Contract(proxyAddress, SCORE_NFT_ABI, provider);
+  const contract = new ethers.Contract(proxyAddress!, SCORE_NFT_ABI, provider);
 
-  // Fetch all contract data in parallel to save time
+  // Fetching nonces and contract data
   const [currentNonce, alreadyHadScore, contractIssuer, contractDs] = await Promise.all([
     contract.nonces(normalizedWallet),
     contract.hasScore(normalizedWallet),
@@ -74,26 +68,15 @@ export async function buildSignedPayload(
   })));
 
   const deadline = Math.floor(Date.now() / 1000) + 3600;
-
   const domain = {
-    name:              'VeraScore',
-    version:           '1',
-    chainId:           CHAIN_ID,
+    name: 'VeraScore',
+    version: '1',
+    chainId: CHAIN_ID,
     verifyingContract: proxyAddress,
   };
 
   const computedDs = ethers.TypedDataEncoder.hashDomain(domain);
-
-  console.log('[signer] ── DEBUG ──────────────────────────────');
-  console.log(`[signer] Issuer wallet:   ${issuerWallet.address}`);
-  console.log(`[signer] Contract issuer: ${contractIssuer}`);
-  console.log(`[signer] Issuers match:   ${issuerWallet.address.toLowerCase() === contractIssuer.toLowerCase()}`);
-  console.log(`[signer] Contract DS:     ${contractDs}`);
-  console.log(`[signer] Computed DS:     ${computedDs}`);
-  console.log(`[signer] DS match:        ${contractDs === computedDs}`);
-  console.log(`[signer] On-chain nonce:  ${currentNonce}`);
-  console.log(`[signer] Deadline:        ${new Date(deadline * 1000).toISOString()}`);
-  console.log('[signer] ───────────────────────────────────────');
+  const issuerWallet = new ethers.Wallet(privateKey!, provider);
 
   const value = {
     wallet:   normalizedWallet,
@@ -103,10 +86,7 @@ export async function buildSignedPayload(
     deadline: BigInt(deadline),
   };
 
-  // Sign the EIP-712 payload
   const signature = await issuerWallet.signTypedData(domain, EIP712_TYPES, value);
-
-  console.log(`[signer] ✅ Signature ready for ${normalizedWallet}`);
 
   return {
     wallet:          normalizedWallet,
