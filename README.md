@@ -266,6 +266,59 @@ The ScoreNFT is soulbound (non-transferable). It stores:
 - `dataHash` (keccak256 of the raw chain data used for scoring)
 - Per-category `breakdown[6]` recorded via a separate `recordBreakdown` call after minting
 
+### 30-Day Score Expiry
+
+Scores are time-limited across all three layers to encourage wallets to stay active and re-score regularly.
+
+**Smart Contract (`ScoreNFT v3`)**
+
+The contract stores `issuedAt` and `expiresAt` (unix timestamps) on every token. `expiresAt` is set to `block.timestamp + 30 days` at mint time. A view function `isExpired(address)` returns `true` once the clock runs out. The contract does **not** burn the NFT — it stays on-chain as a historical record — but it is flagged as stale.
+
+```solidity
+uint256 public constant SCORE_TTL = 30 days;
+
+function mintScore(address to, uint16 score, bytes32 dataHash) external onlyIssuer {
+    // ...
+    tokens[tokenId].issuedAt  = block.timestamp;
+    tokens[tokenId].expiresAt = block.timestamp + SCORE_TTL;
+}
+
+function isExpired(address wallet) public view returns (bool) {
+    uint256 tid = addressToToken[wallet];
+    if (tid == 0) return true;
+    return block.timestamp > tokens[tid].expiresAt;
+}
+```
+
+**Backend (`score.ts`)**
+
+Before minting a fresh score the backend reads `isExpired()` from the contract. If the existing score is still valid and was issued less than 60 minutes ago, the request is rejected with a rate-limit error — preventing spam re-scores. If the score is expired (or doesn't exist), the full Mistral scoring pipeline runs and a new NFT is minted (re-using the same token ID via `updateScore`).
+
+```typescript
+const expired   = await contract.isExpired(address);
+const issuedAt  = await contract.getIssuedAt(address);
+const age       = Date.now() / 1000 - Number(issuedAt);
+
+if (!expired && age < 3600) {
+  return res.status(429).json({ error: 'Score still valid. Re-score allowed after 60 min.' });
+}
+// → run Mistral → mintScore / updateScore
+```
+
+**Frontend (`Home.tsx`, `ScoreCard.tsx`, `NFTViewer.tsx`)**
+
+The frontend reads `expiresAt` from the NFT metadata and computes `daysLeft = Math.ceil((expiresAt - now) / 86400)`. Three visual states are shown:
+
+| State | Condition | Display |
+|---|---|---|
+| Fresh | `daysLeft > 7` | Green badge — `VALID · Xd left` |
+| Expiring soon | `1 ≤ daysLeft ≤ 7` | Amber badge — `EXPIRES SOON · Xd` |
+| Expired | `daysLeft ≤ 0` | Red badge — `EXPIRED` + *Re-Score* CTA button |
+
+The *Get My Score* button on Home also checks expiry — if the score is expired it shows **"Score Expired — Refresh"** instead of the normal label, nudging the user to re-score.
+
+---
+
 ### Gas on Polkadot Hub TestNet
 
 - Block time: ~12–15 seconds
