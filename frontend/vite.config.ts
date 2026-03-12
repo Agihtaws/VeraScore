@@ -6,30 +6,13 @@ export default defineConfig({
   server: {
     port: 5173,
     proxy: {
-      '/score': {
-        target: 'http://localhost:3001',
-        changeOrigin: true,
-      },
-      '/lending': {
-        target: 'http://localhost:3001',
-        changeOrigin: true,
-      },
-      '/verify': {
-        target: 'http://localhost:3001',
-        changeOrigin: true,
-      },
-      '/fee-info': {
-        target: 'http://localhost:3001',
-        changeOrigin: true,
-      },
-      '/health': {
-        target: 'http://localhost:3001',
-        changeOrigin: true,
-      },
-      '/balances': {
-        target: 'http://localhost:3001',
-        changeOrigin: true,
-      },
+      '/score':    { target: 'http://localhost:3001', changeOrigin: true },
+      '/lending':  { target: 'http://localhost:3001', changeOrigin: true },
+      '/verify':   { target: 'http://localhost:3001', changeOrigin: true },
+      '/fee-info': { target: 'http://localhost:3001', changeOrigin: true },
+      '/health':   { target: 'http://localhost:3001', changeOrigin: true },
+      '/balances': { target: 'http://localhost:3001', changeOrigin: true },
+      '/transfer': { target: 'http://localhost:3001', changeOrigin: true },
     },
   },
 });

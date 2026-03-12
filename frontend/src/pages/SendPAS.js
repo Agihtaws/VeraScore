@@ -1,20 +1,16 @@
-'use client';
 import { jsx as _jsx, jsxs as _jsxs } from "react/jsx-runtime";
-import { useState, useCallback, useRef } from 'react';
-import { useAccount, useBalance, useSendTransaction, useChainId, useSwitchChain } from 'wagmi';
+import { useState, useCallback, useEffect } from 'react';
+import { useAccount, useBalance, useSendTransaction, useWaitForTransactionReceipt, useChainId, useSwitchChain, } from 'wagmi';
 import { parseEther, isAddress } from 'viem';
-import { pasTestnet } from '../utils/wagmi';
+import { pasTestnet, SCORE_NFT_PROXY } from '../utils/wagmi';
 const EXPLORER = 'https://polkadot.testnet.routescan.io';
-const RPC_URL = 'https://pas-rpc.stakeworld.io/assethub';
 export function SendPAS({ onSuccess } = {}) {
     const { address, isConnected } = useAccount();
     const chainId = useChainId();
     const { switchChain } = useSwitchChain();
     const isWrongNetwork = isConnected && chainId !== pasTestnet.id;
     const { data: balData, refetch: refetchBal } = useBalance({
-        address,
-        chainId: pasTestnet.id,
-        query: { refetchInterval: 10_000 }
+        address, chainId: pasTestnet.id, query: { refetchInterval: 10_000 },
     });
     const balance = balData ? Number(balData.value) / 1e18 : 0;
     const [to, setTo] = useState('');
@@ -22,74 +18,71 @@ export function SendPAS({ onSuccess } = {}) {
     const [status, setStatus] = useState('idle');
     const [txHash, setTxHash] = useState();
     const [errMsg, setErrMsg] = useState('');
-    const statusRef = useRef('idle');
-    const setStatusSync = useCallback((s) => {
-        statusRef.current = s;
-        setStatus(s);
-    }, []);
     const { sendTransactionAsync } = useSendTransaction();
-    // ── Reset Function (Fixed Scope pa!) ──
-    const handleReset = useCallback(() => {
-        statusRef.current = 'idle';
-        setStatus('idle');
-        setTxHash(undefined);
-        setErrMsg('');
-        setTo('');
-        setAmount('');
-    }, []);
+    const { isSuccess: isConfirmed, isError: isFailed, error: receiptError } = useWaitForTransactionReceipt({
+        hash: txHash, chainId: pasTestnet.id,
+        query: { enabled: !!txHash && status === 'mining' },
+    });
+    useEffect(() => {
+        if (isConfirmed && status === 'mining') {
+            setStatus('success');
+            refetchBal();
+            onSuccess?.();
+        }
+    }, [isConfirmed, status, refetchBal, onSuccess]);
+    useEffect(() => {
+        if (isFailed && status === 'mining') {
+            setStatus('error');
+            const msg = receiptError?.message ?? 'Transaction failed on-chain.';
+            setErrMsg(msg.length > 140 ? msg.slice(0, 140) + '…' : msg);
+        }
+    }, [isFailed, status, receiptError]);
     const toValid = to.trim() !== '' && isAddress(to.trim());
     const amtNum = parseFloat(amount);
     const amtValid = !isNaN(amtNum) && amtNum > 0 && amtNum <= balance;
     const canSend = isConnected && !isWrongNetwork && toValid && amtValid && status === 'idle';
-    const setMax = () => {
-        const max = Math.max(0, balance - 0.001);
-        setAmount(max.toFixed(6));
-    };
+    const setMax = () => setAmount(Math.max(0, balance - 0.001).toFixed(6));
     const handleSend = useCallback(async () => {
         if (!canSend)
             return;
-        setStatusSync('signing');
+        setStatus('signing');
         setErrMsg('');
         setTxHash(undefined);
         try {
             const hash = await sendTransactionAsync({
-                to: to.trim(),
-                value: parseEther(amount),
+                to: to.trim(), value: parseEther(amount), chainId: pasTestnet.id,
             });
             setTxHash(hash);
-            setStatusSync('mining');
-            const interval = setInterval(async () => {
-                try {
-                    const res = await fetch(RPC_URL, {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({
-                            jsonrpc: '2.0', id: 1,
-                            method: 'eth_getTransactionReceipt',
-                            params: [hash],
-                        }),
-                    });
-                    const json = await res.json();
-                    if (json?.result?.status === '0x1') {
-                        clearInterval(interval);
-                        setStatusSync('success');
-                        refetchBal();
-                        onSuccess?.();
-                    }
-                    else if (json?.result?.status === '0x0') {
-                        clearInterval(interval);
-                        setStatusSync('error');
-                        setErrMsg('Transaction reverted on-chain.');
-                    }
-                }
-                catch { /* keep polling */ }
-            }, 2000);
-            setTimeout(() => clearInterval(interval), 60_000);
+            setStatus('mining');
         }
         catch (err) {
-            setErrMsg(err.message.includes('rejected') ? 'Transaction rejected.' : 'Insufficient PAS for gas.');
-            setStatusSync('error');
+            const msg = err?.message ?? 'Unknown error';
+            setErrMsg(msg.includes('User rejected') || msg.includes('rejected') ? 'Transaction rejected in MetaMask.'
+                : msg.includes('insufficient') ? 'Insufficient PAS balance for gas.'
+                    : msg.length > 140 ? msg.slice(0, 140) + '…' : msg);
+            setStatus('error');
         }
-    }, [canSend, to, amount, sendTransactionAsync, refetchBal, onSuccess, setStatusSync]);
-    return (_jsxs("div", { className: "max-w-4xl mx-auto px-4 py-12 space-y-10", children: [_jsxs("div", { className: "space-y-2", children: [_jsxs("h1", { className: "text-3xl font-black tracking-tighter uppercase italic text-white", children: ["Native ", _jsx("span", { className: "text-polkadot-pink text-4xl", children: "PAS" }), " Transfer"] }), _jsx("p", { className: "text-gray-500 text-sm font-medium uppercase tracking-widest", children: "L1 Gas Token \u00B7 Polkadot Hub Parachain Native" })] }), isWrongNetwork && (_jsxs("div", { className: "bg-amber-500/10 border border-amber-500/20 rounded-2xl p-4 flex items-center justify-between", children: [_jsx("span", { className: "text-amber-400 text-sm font-bold uppercase tracking-tight", children: "\u26A0\uFE0F Switch to Polkadot Hub" }), _jsx("button", { onClick: () => switchChain({ chainId: pasTestnet.id }), className: "bg-amber-500 hover:bg-amber-400 text-black font-black px-4 py-2 rounded-xl text-[10px] uppercase", children: "Switch" })] })), _jsxs("div", { className: "grid grid-cols-1 lg:grid-cols-12 gap-8", children: [_jsxs("div", { className: "lg:col-span-8 bg-polkadot-card border border-polkadot-border rounded-3xl overflow-hidden shadow-2xl", children: [_jsx("div", { className: "px-6 py-4 border-b border-polkadot-border bg-black/20 text-[10px] text-gray-500 font-black uppercase tracking-widest", children: "Transaction Details" }), _jsxs("div", { className: "p-8 space-y-8", children: [_jsxs("div", { className: "space-y-2", children: [_jsx("label", { className: "text-[10px] text-gray-600 font-black uppercase tracking-widest ml-1", children: "From Wallet" }), _jsxs("div", { className: "bg-polkadot-dark border border-polkadot-border rounded-2xl px-5 py-4 flex items-center gap-3", children: [_jsx("div", { className: "w-2 h-2 rounded-full bg-emerald-500 shadow-[0_0_8px_rgba(16,185,129,0.5)]" }), _jsx("span", { className: "font-mono text-xs text-gray-400 truncate flex-1", children: isConnected ? address : 'Not connected' }), isConnected && _jsxs("span", { className: "text-[10px] font-black text-polkadot-pink uppercase", children: [balance.toFixed(4), " PAS"] })] })] }), _jsxs("div", { className: "space-y-2", children: [_jsx("label", { className: "text-[10px] text-gray-600 font-black uppercase tracking-widest ml-1", children: "Recipient Address" }), _jsx("input", { type: "text", value: to, onChange: e => setTo(e.target.value), placeholder: "0x...", className: "w-full bg-polkadot-dark border border-polkadot-border rounded-2xl px-5 py-4 text-sm font-mono text-white placeholder-gray-800 outline-none focus:border-polkadot-pink/40" })] }), _jsxs("div", { className: "space-y-2", children: [_jsxs("div", { className: "flex justify-between items-end ml-1", children: [_jsx("label", { className: "text-[10px] text-gray-600 font-black uppercase tracking-widest", children: "Amount" }), _jsx("button", { onClick: setMax, className: "text-polkadot-pink text-[10px] font-black uppercase hover:opacity-70", children: "Use Max" })] }), _jsxs("div", { className: "relative", children: [_jsx("input", { type: "number", value: amount, onChange: e => setAmount(e.target.value), placeholder: "0.00", className: "w-full bg-polkadot-dark border border-polkadot-border rounded-2xl px-5 py-4 text-xl font-mono text-white placeholder-gray-800 outline-none" }), _jsx("div", { className: "absolute right-5 top-1/2 -translate-y-1/2 font-black text-sm uppercase text-gray-500", children: "PAS" })] })] }), status === 'success' ? (_jsxs("div", { className: "bg-emerald-500/10 border border-emerald-500/20 rounded-2xl p-6 text-center space-y-4", children: [_jsx("div", { className: "text-emerald-400 font-black uppercase tracking-widest text-sm", children: "\u2726 Transaction Confirmed" }), _jsx("button", { onClick: handleReset, className: "text-gray-500 text-[10px] font-bold uppercase underline hover:text-white", children: "Send Another" })] })) : (_jsx("button", { onClick: handleSend, disabled: !canSend, className: `w-full py-5 rounded-2xl font-black uppercase tracking-widest text-sm transition-all ${canSend ? 'bg-polkadot-pink text-white shadow-lg' : 'bg-gray-800 text-gray-600 cursor-not-allowed'}`, children: status === 'signing' ? 'Check MetaMask...' : status === 'mining' ? 'Mining on Paseo...' : 'Send PAS Token' })), errMsg && _jsx("div", { className: "text-red-400 text-[10px] font-black uppercase text-center", children: errMsg })] })] }), _jsx("div", { className: "lg:col-span-4 space-y-6", children: _jsxs("div", { className: "bg-polkadot-card border border-polkadot-border rounded-3xl p-6 space-y-4", children: [_jsx("h3", { className: "text-[10px] text-gray-500 font-black uppercase tracking-widest", children: "Network Info" }), _jsx("div", { className: "space-y-3", children: [['Network', 'Paseo'], ['ID', pasTestnet.id.toString()], ['Symbol', 'PAS']].map(([k, v]) => (_jsxs("div", { className: "flex justify-between items-center text-[10px] font-bold", children: [_jsx("span", { className: "text-gray-600 uppercase", children: k }), _jsx("span", { className: "font-mono text-gray-300", children: v })] }, k))) })] }) })] })] }));
+    }, [canSend, to, amount, sendTransactionAsync]);
+    const reset = () => { setStatus('idle'); setTxHash(undefined); setErrMsg(''); setTo(''); setAmount(''); };
+    return (_jsxs("div", { className: "max-w-2xl mx-auto px-4 sm:px-6 py-6 space-y-5", children: [_jsxs("div", { children: [_jsxs("h1", { className: "text-xl font-black tracking-tight text-white", children: ["Send ", _jsx("span", { className: "text-polkadot-pink", children: "PAS" })] }), _jsx("p", { className: "text-[10px] text-gray-600 mt-0.5 font-medium", children: "Native token transfer \u00B7 Polkadot Hub TestNet" })] }), isWrongNetwork && (_jsxs("div", { className: "flex items-center justify-between bg-yellow-500/5 border border-yellow-500/20 rounded-xl px-4 py-3", children: [_jsx("span", { className: "text-xs font-semibold text-yellow-400", children: "\u26A0 Switch to Polkadot Hub TestNet" }), _jsx("button", { onClick: () => switchChain({ chainId: pasTestnet.id }), className: "shrink-0 bg-yellow-500/10 hover:bg-yellow-500/20 border border-yellow-500/30 text-yellow-400 font-bold text-xs px-3 py-1.5 rounded-lg transition-all ml-3", children: "Switch" })] })), _jsxs("div", { className: "bg-polkadot-card border border-polkadot-border rounded-2xl overflow-hidden shadow-xl", children: [_jsxs("div", { className: "px-4 py-3 border-b border-polkadot-border bg-black/20 flex items-center justify-between", children: [_jsx("span", { className: "text-[9px] font-black uppercase tracking-widest text-gray-500", children: "Transfer Details" }), isConnected && (_jsxs("span", { className: "text-[9px] font-black font-mono text-polkadot-pink", children: [balance.toLocaleString('en-US', { minimumFractionDigits: 4, maximumFractionDigits: 4 }), " PAS"] }))] }), _jsxs("div", { className: "px-4 py-4 space-y-4", children: [_jsxs("div", { className: "space-y-1.5", children: [_jsx("div", { className: "text-[8px] font-bold uppercase tracking-widest text-gray-700", children: "From" }), _jsxs("div", { className: "bg-black/30 border border-white/5 rounded-xl px-4 py-2.5 flex items-center gap-2", children: [_jsx("span", { className: `w-1.5 h-1.5 rounded-full shrink-0 ${isConnected ? 'bg-emerald-500' : 'bg-gray-700'}` }), _jsx("span", { className: "font-mono text-xs text-gray-500 truncate flex-1", children: isConnected ? address : 'Not connected' })] })] }), _jsx("div", { className: "flex justify-center", children: _jsx("div", { className: "w-7 h-7 rounded-lg border border-polkadot-border bg-black/30 flex items-center justify-center text-polkadot-pink text-xs font-black", children: "\u2193" }) }), _jsxs("div", { className: "space-y-1.5", children: [_jsx("div", { className: "text-[8px] font-bold uppercase tracking-widest text-gray-700", children: "To Address" }), _jsx("input", { type: "text", value: to, onChange: e => setTo(e.target.value), placeholder: "0x\u2026", disabled: status === 'signing' || status === 'mining', className: `w-full bg-polkadot-dark border rounded-xl px-4 py-2.5 text-xs font-mono text-white placeholder-gray-700 outline-none transition-colors ${to && !toValid ? 'border-red-500/40'
+                                            : to && toValid ? 'border-emerald-500/30'
+                                                : 'border-polkadot-border focus:border-polkadot-pink/40'}` }), to && !toValid && (_jsx("p", { className: "text-[9px] font-bold text-red-400", children: "\u2717 Invalid EVM address" }))] }), _jsxs("div", { className: "space-y-1.5", children: [_jsxs("div", { className: "flex items-center justify-between", children: [_jsx("div", { className: "text-[8px] font-bold uppercase tracking-widest text-gray-700", children: "Amount" }), isConnected && (_jsx("button", { onClick: setMax, className: "text-[9px] font-bold uppercase tracking-widest text-polkadot-pink hover:opacity-70 transition-opacity", children: "Max" }))] }), _jsxs("div", { className: `flex items-center bg-polkadot-dark border rounded-xl overflow-hidden transition-colors ${amount && !amtValid ? 'border-red-500/40'
+                                            : amount && amtValid ? 'border-emerald-500/30'
+                                                : 'border-polkadot-border focus-within:border-polkadot-pink/40'}`, children: [_jsx("input", { type: "number", value: amount, onChange: e => setAmount(e.target.value), placeholder: "0.0", min: "0", step: "0.001", disabled: status === 'signing' || status === 'mining', className: "flex-1 bg-transparent px-4 py-2.5 text-sm font-mono text-white placeholder-gray-700 outline-none" }), _jsx("span", { className: "px-4 text-[9px] font-black uppercase tracking-widest text-gray-700 border-l border-polkadot-border", children: "PAS" })] }), amount && !amtValid && amtNum > balance && (_jsx("p", { className: "text-[9px] font-bold text-red-400", children: "\u2717 Insufficient balance" })), amount && amtValid && (_jsxs("p", { className: "text-[9px] text-gray-700", children: ["Remaining: ", _jsxs("span", { className: "text-gray-600", children: [(balance - amtNum).toFixed(4), " PAS"] })] }))] }), status === 'signing' && (_jsxs("div", { className: "flex items-center gap-2.5 bg-yellow-500/5 border border-yellow-500/20 rounded-xl px-4 py-2.5", children: [_jsx("span", { className: "w-3 h-3 border-2 border-yellow-400 border-t-transparent rounded-full animate-spin shrink-0" }), _jsx("span", { className: "text-[9px] font-bold uppercase tracking-widest text-yellow-400", children: "Check MetaMask\u2026" })] })), status === 'mining' && (_jsxs("div", { className: "flex items-center gap-2.5 bg-blue-500/5 border border-blue-500/20 rounded-xl px-4 py-2.5", children: [_jsx("span", { className: "w-3 h-3 border-2 border-blue-400 border-t-transparent rounded-full animate-spin shrink-0" }), _jsx("span", { className: "text-[9px] font-bold uppercase tracking-widest text-blue-400 flex-1", children: "Mining on Hub\u2026" }), txHash && (_jsx("a", { href: `${EXPLORER}/tx/${txHash}`, target: "_blank", rel: "noopener noreferrer", className: "text-[9px] font-bold uppercase text-gray-600 hover:text-polkadot-pink transition-colors shrink-0", children: "View \u2197" }))] })), status === 'success' && (_jsxs("div", { className: "bg-emerald-500/5 border border-emerald-500/20 rounded-xl px-4 py-3 space-y-1.5", children: [_jsx("div", { className: "text-[9px] font-bold uppercase tracking-widest text-emerald-400", children: "\u2713 Confirmed" }), txHash && (_jsxs("a", { href: `${EXPLORER}/tx/${txHash}`, target: "_blank", rel: "noopener noreferrer", className: "block font-mono text-[9px] text-gray-600 hover:text-polkadot-pink truncate transition-colors", children: [txHash, " \u2197"] })), _jsx("button", { onClick: reset, className: "text-[9px] font-bold uppercase tracking-widest text-gray-600 hover:text-gray-400 transition-colors", children: "Send Another \u2192" })] })), status === 'error' && (_jsxs("div", { className: "bg-red-500/5 border border-red-500/20 rounded-xl px-4 py-3 space-y-1.5", children: [_jsxs("div", { className: "text-[9px] font-bold uppercase tracking-widest text-red-400", children: ["\u2717 ", errMsg] }), _jsx("button", { onClick: reset, className: "text-[9px] font-bold uppercase tracking-widest text-gray-600 hover:text-gray-400 transition-colors", children: "Try Again \u2192" })] })), status !== 'success' && (_jsx("button", { onClick: handleSend, disabled: !canSend, className: "w-full py-3 bg-polkadot-pink hover:bg-pink-600 disabled:opacity-40 disabled:cursor-not-allowed text-white font-bold text-xs uppercase tracking-widest rounded-xl transition-all shadow-[0_0_12px_rgba(230,0,122,0.2)]", children: !isConnected ? 'Connect Wallet to Send'
+                                    : isWrongNetwork ? 'Switch to PAS TestNet'
+                                        : status === 'signing' ? 'Confirm in MetaMask…'
+                                            : status === 'mining' ? 'Confirming On-Chain…'
+                                                : 'Send PAS' }))] })] }), _jsxs("div", { className: "grid grid-cols-1 sm:grid-cols-2 gap-3", children: [_jsxs("div", { className: "bg-polkadot-card border border-polkadot-border rounded-2xl overflow-hidden", children: [_jsx("div", { className: "px-4 py-3 border-b border-polkadot-border bg-black/20", children: _jsx("span", { className: "text-[9px] font-black uppercase tracking-widest text-gray-500", children: "Network" }) }), _jsx("div", { className: "grid grid-cols-1 gap-px bg-polkadot-border", children: [
+                                    ['Name', pasTestnet.name],
+                                    ['Chain ID', pasTestnet.id.toString()],
+                                    ['Token', `${pasTestnet.nativeCurrency.name} (${pasTestnet.nativeCurrency.symbol})`],
+                                    ['Decimals', pasTestnet.nativeCurrency.decimals.toString()],
+                                ].map(([k, v]) => (_jsxs("div", { className: "bg-polkadot-card px-4 py-2.5 flex justify-between items-center gap-3", children: [_jsx("span", { className: "text-[8px] font-bold uppercase tracking-widest text-gray-700 shrink-0", children: k }), _jsx("span", { className: "text-[9px] font-mono text-gray-500 text-right break-all", children: v })] }, k))) })] }), _jsxs("div", { className: "space-y-3", children: [_jsxs("div", { className: "bg-polkadot-card border border-polkadot-border rounded-2xl overflow-hidden", children: [_jsx("div", { className: "px-4 py-3 border-b border-polkadot-border bg-black/20", children: _jsx("span", { className: "text-[9px] font-black uppercase tracking-widest text-gray-500", children: "Tips" }) }), _jsx("div", { className: "px-4 py-3 space-y-2", children: [
+                                            'Keep ~0.001 PAS for gas.',
+                                            'Confirms in ~6–12 s on PAS TestNet.',
+                                            'EVM-format addresses only (0x…).',
+                                        ].map((tip, i) => (_jsxs("div", { className: "flex gap-2", children: [_jsx("span", { className: "text-polkadot-pink font-black text-[9px] shrink-0", children: "\u2192" }), _jsx("span", { className: "text-[9px] text-gray-600 leading-relaxed", children: tip })] }, i))) })] }), _jsxs("div", { className: "bg-polkadot-card border border-polkadot-border rounded-2xl overflow-hidden", children: [_jsx("div", { className: "px-4 py-3 border-b border-polkadot-border bg-black/20", children: _jsx("span", { className: "text-[9px] font-black uppercase tracking-widest text-gray-500", children: "Contracts" }) }), _jsx("div", { className: "px-4 py-3 space-y-2", children: [
+                                            ['ScoreNFT', SCORE_NFT_PROXY],
+                                            ['Lending', import.meta.env.VITE_LENDING_POOL],
+                                        ].filter(([, addr]) => addr).map(([label, addr]) => (_jsxs("div", { children: [_jsx("div", { className: "text-[8px] font-bold uppercase tracking-widest text-gray-700", children: label }), _jsxs("a", { href: `${EXPLORER}/address/${addr}`, target: "_blank", rel: "noopener noreferrer", className: "font-mono text-[9px] text-gray-600 hover:text-polkadot-pink transition-colors break-all", children: [addr, " \u2197"] })] }, label))) })] })] })] })] }));
 }

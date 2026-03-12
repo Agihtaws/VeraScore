@@ -1,12 +1,12 @@
-'use client';
-
-import { useState, useCallback, useRef } from 'react';
-import { useAccount, useBalance, useSendTransaction, useChainId, useSwitchChain } from 'wagmi';
+import { useState, useCallback, useEffect } from 'react';
+import {
+  useAccount, useBalance, useSendTransaction,
+  useWaitForTransactionReceipt, useChainId, useSwitchChain,
+} from 'wagmi';
 import { parseEther, isAddress } from 'viem';
-import { pasTestnet } from '../utils/wagmi';
+import { pasTestnet, SCORE_NFT_PROXY } from '../utils/wagmi';
 
 const EXPLORER = 'https://polkadot.testnet.routescan.io';
-const RPC_URL  = 'https://pas-rpc.stakeworld.io/assethub';
 
 type Status = 'idle' | 'signing' | 'mining' | 'success' | 'error';
 
@@ -16,10 +16,8 @@ export function SendPAS({ onSuccess }: { onSuccess?: () => void } = {}) {
   const { switchChain }          = useSwitchChain();
   const isWrongNetwork           = isConnected && chainId !== pasTestnet.id;
 
-  const { data: balData, refetch: refetchBal } = useBalance({ 
-    address, 
-    chainId: pasTestnet.id,
-    query: { refetchInterval: 10_000 } 
+  const { data: balData, refetch: refetchBal } = useBalance({
+    address, chainId: pasTestnet.id, query: { refetchInterval: 10_000 },
   });
   const balance = balData ? Number(balData.value) / 1e18 : 0;
 
@@ -28,178 +26,277 @@ export function SendPAS({ onSuccess }: { onSuccess?: () => void } = {}) {
   const [status, setStatus] = useState<Status>('idle');
   const [txHash, setTxHash] = useState<`0x${string}` | undefined>();
   const [errMsg, setErrMsg] = useState('');
-  const statusRef = useRef<Status>('idle');
-
-  const setStatusSync = useCallback((s: Status) => { 
-    statusRef.current = s; 
-    setStatus(s); 
-  }, []);
 
   const { sendTransactionAsync } = useSendTransaction();
+  const { isSuccess: isConfirmed, isError: isFailed, error: receiptError } =
+    useWaitForTransactionReceipt({
+      hash: txHash, chainId: pasTestnet.id,
+      query: { enabled: !!txHash && status === 'mining' },
+    });
 
-  // ── Reset Function (Fixed Scope pa!) ──
-  const handleReset = useCallback(() => {
-    statusRef.current = 'idle';
-    setStatus('idle');
-    setTxHash(undefined);
-    setErrMsg('');
-    setTo('');
-    setAmount('');
-  }, []);
+  useEffect(() => {
+    if (isConfirmed && status === 'mining') { setStatus('success'); refetchBal(); onSuccess?.(); }
+  }, [isConfirmed, status, refetchBal, onSuccess]);
 
-  const toValid     = to.trim() !== '' && isAddress(to.trim());
-  const amtNum      = parseFloat(amount);
-  const amtValid    = !isNaN(amtNum) && amtNum > 0 && amtNum <= balance;
-  const canSend     = isConnected && !isWrongNetwork && toValid && amtValid && status === 'idle';
+  useEffect(() => {
+    if (isFailed && status === 'mining') {
+      setStatus('error');
+      const msg = receiptError?.message ?? 'Transaction failed on-chain.';
+      setErrMsg(msg.length > 140 ? msg.slice(0, 140) + '…' : msg);
+    }
+  }, [isFailed, status, receiptError]);
 
-  const setMax = () => {
-    const max = Math.max(0, balance - 0.001);
-    setAmount(max.toFixed(6));
-  };
+  const toValid  = to.trim() !== '' && isAddress(to.trim());
+  const amtNum   = parseFloat(amount);
+  const amtValid = !isNaN(amtNum) && amtNum > 0 && amtNum <= balance;
+  const canSend  = isConnected && !isWrongNetwork && toValid && amtValid && status === 'idle';
+
+  const setMax = () => setAmount(Math.max(0, balance - 0.001).toFixed(6));
 
   const handleSend = useCallback(async () => {
     if (!canSend) return;
-    setStatusSync('signing');
-    setErrMsg('');
-    setTxHash(undefined);
-
+    setStatus('signing'); setErrMsg(''); setTxHash(undefined);
     try {
       const hash = await sendTransactionAsync({
-        to:    to.trim() as `0x${string}`,
-        value: parseEther(amount),
+        to: to.trim() as `0x${string}`, value: parseEther(amount), chainId: pasTestnet.id,
       });
-      
-      setTxHash(hash);
-      setStatusSync('mining');
-
-      const interval = setInterval(async () => {
-        try {
-          const res = await fetch(RPC_URL, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              jsonrpc: '2.0', id: 1,
-              method: 'eth_getTransactionReceipt',
-              params: [hash],
-            }),
-          });
-          const json = await res.json();
-
-          if (json?.result?.status === '0x1') {
-            clearInterval(interval);
-            setStatusSync('success');
-            refetchBal();
-            onSuccess?.();
-          } else if (json?.result?.status === '0x0') {
-            clearInterval(interval);
-            setStatusSync('error');
-            setErrMsg('Transaction reverted on-chain.');
-          }
-        } catch { /* keep polling */ }
-      }, 2000);
-
-      setTimeout(() => clearInterval(interval), 60_000);
-
-    } catch (err: any) {
-      setErrMsg(err.message.includes('rejected') ? 'Transaction rejected.' : 'Insufficient PAS for gas.');
-      setStatusSync('error');
+      setTxHash(hash); setStatus('mining');
+    } catch (err: unknown) {
+      const msg = (err as Error)?.message ?? 'Unknown error';
+      setErrMsg(
+        msg.includes('User rejected') || msg.includes('rejected') ? 'Transaction rejected in MetaMask.'
+        : msg.includes('insufficient') ? 'Insufficient PAS balance for gas.'
+        : msg.length > 140 ? msg.slice(0, 140) + '…' : msg,
+      );
+      setStatus('error');
     }
-  }, [canSend, to, amount, sendTransactionAsync, refetchBal, onSuccess, setStatusSync]);
+  }, [canSend, to, amount, sendTransactionAsync]);
+
+  const reset = () => { setStatus('idle'); setTxHash(undefined); setErrMsg(''); setTo(''); setAmount(''); };
 
   return (
-    <div className="max-w-4xl mx-auto px-4 py-12 space-y-10">
-      
-      <div className="space-y-2">
-        <h1 className="text-3xl font-black tracking-tighter uppercase italic text-white">
-          Native <span className="text-polkadot-pink text-4xl">PAS</span> Transfer
+    <div className="max-w-2xl mx-auto px-4 sm:px-6 py-6 space-y-5">
+
+      {/* Header */}
+      <div>
+        <h1 className="text-xl font-black tracking-tight text-white">
+          Send <span className="text-polkadot-pink">PAS</span>
         </h1>
-        <p className="text-gray-500 text-sm font-medium uppercase tracking-widest">
-          L1 Gas Token · Polkadot Hub Parachain Native
+        <p className="text-[10px] text-gray-600 mt-0.5 font-medium">
+          Native token transfer · Polkadot Hub TestNet
         </p>
       </div>
 
+      {/* Wrong network */}
       {isWrongNetwork && (
-        <div className="bg-amber-500/10 border border-amber-500/20 rounded-2xl p-4 flex items-center justify-between">
-          <span className="text-amber-400 text-sm font-bold uppercase tracking-tight">⚠️ Switch to Polkadot Hub</span>
-          <button onClick={() => switchChain({ chainId: pasTestnet.id })} className="bg-amber-500 hover:bg-amber-400 text-black font-black px-4 py-2 rounded-xl text-[10px] uppercase">
+        <div className="flex items-center justify-between bg-yellow-500/5 border border-yellow-500/20 rounded-xl px-4 py-3">
+          <span className="text-xs font-semibold text-yellow-400">⚠ Switch to Polkadot Hub TestNet</span>
+          <button onClick={() => switchChain({ chainId: pasTestnet.id })}
+            className="shrink-0 bg-yellow-500/10 hover:bg-yellow-500/20 border border-yellow-500/30 text-yellow-400 font-bold text-xs px-3 py-1.5 rounded-lg transition-all ml-3">
             Switch
           </button>
         </div>
       )}
 
-      <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
-        <div className="lg:col-span-8 bg-polkadot-card border border-polkadot-border rounded-3xl overflow-hidden shadow-2xl">
-          <div className="px-6 py-4 border-b border-polkadot-border bg-black/20 text-[10px] text-gray-500 font-black uppercase tracking-widest">
-            Transaction Details
+      {/* Send form */}
+      <div className="bg-polkadot-card border border-polkadot-border rounded-2xl overflow-hidden shadow-xl">
+        <div className="px-4 py-3 border-b border-polkadot-border bg-black/20 flex items-center justify-between">
+          <span className="text-[9px] font-black uppercase tracking-widest text-gray-500">Transfer Details</span>
+          {isConnected && (
+            <span className="text-[9px] font-black font-mono text-polkadot-pink">
+              {balance.toLocaleString('en-US', { minimumFractionDigits: 4, maximumFractionDigits: 4 })} PAS
+            </span>
+          )}
+        </div>
+
+        <div className="px-4 py-4 space-y-4">
+
+          {/* From */}
+          <div className="space-y-1.5">
+            <div className="text-[8px] font-bold uppercase tracking-widest text-gray-700">From</div>
+            <div className="bg-black/30 border border-white/5 rounded-xl px-4 py-2.5 flex items-center gap-2">
+              <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${isConnected ? 'bg-emerald-500' : 'bg-gray-700'}`} />
+              <span className="font-mono text-xs text-gray-500 truncate flex-1">
+                {isConnected ? address : 'Not connected'}
+              </span>
+            </div>
           </div>
 
-          <div className="p-8 space-y-8">
-            <div className="space-y-2">
-              <label className="text-[10px] text-gray-600 font-black uppercase tracking-widest ml-1">From Wallet</label>
-              <div className="bg-polkadot-dark border border-polkadot-border rounded-2xl px-5 py-4 flex items-center gap-3">
-                <div className="w-2 h-2 rounded-full bg-emerald-500 shadow-[0_0_8px_rgba(16,185,129,0.5)]" />
-                <span className="font-mono text-xs text-gray-400 truncate flex-1">{isConnected ? address : 'Not connected'}</span>
-                {isConnected && <span className="text-[10px] font-black text-polkadot-pink uppercase">{balance.toFixed(4)} PAS</span>}
-              </div>
+          {/* Arrow */}
+          <div className="flex justify-center">
+            <div className="w-7 h-7 rounded-lg border border-polkadot-border bg-black/30 flex items-center justify-center text-polkadot-pink text-xs font-black">
+              ↓
             </div>
+          </div>
 
-            <div className="space-y-2">
-              <label className="text-[10px] text-gray-600 font-black uppercase tracking-widest ml-1">Recipient Address</label>
-              <input
-                type="text"
-                value={to}
-                onChange={e => setTo(e.target.value)}
-                placeholder="0x..."
-                className="w-full bg-polkadot-dark border border-polkadot-border rounded-2xl px-5 py-4 text-sm font-mono text-white placeholder-gray-800 outline-none focus:border-polkadot-pink/40"
-              />
-            </div>
-
-            <div className="space-y-2">
-              <div className="flex justify-between items-end ml-1">
-                <label className="text-[10px] text-gray-600 font-black uppercase tracking-widest">Amount</label>
-                <button onClick={setMax} className="text-polkadot-pink text-[10px] font-black uppercase hover:opacity-70">Use Max</button>
-              </div>
-              <div className="relative">
-                <input
-                  type="number"
-                  value={amount}
-                  onChange={e => setAmount(e.target.value)}
-                  placeholder="0.00"
-                  className="w-full bg-polkadot-dark border border-polkadot-border rounded-2xl px-5 py-4 text-xl font-mono text-white placeholder-gray-800 outline-none"
-                />
-                <div className="absolute right-5 top-1/2 -translate-y-1/2 font-black text-sm uppercase text-gray-500">PAS</div>
-              </div>
-            </div>
-
-            {status === 'success' ? (
-              <div className="bg-emerald-500/10 border border-emerald-500/20 rounded-2xl p-6 text-center space-y-4">
-                <div className="text-emerald-400 font-black uppercase tracking-widest text-sm">✦ Transaction Confirmed</div>
-                <button onClick={handleReset} className="text-gray-500 text-[10px] font-bold uppercase underline hover:text-white">Send Another</button>
-              </div>
-            ) : (
-              <button
-                onClick={handleSend}
-                disabled={!canSend}
-                className={`w-full py-5 rounded-2xl font-black uppercase tracking-widest text-sm transition-all ${
-                  canSend ? 'bg-polkadot-pink text-white shadow-lg' : 'bg-gray-800 text-gray-600 cursor-not-allowed'
-                }`}
-              >
-                {status === 'signing' ? 'Check MetaMask...' : status === 'mining' ? 'Mining on Paseo...' : 'Send PAS Token'}
-              </button>
+          {/* To */}
+          <div className="space-y-1.5">
+            <div className="text-[8px] font-bold uppercase tracking-widest text-gray-700">To Address</div>
+            <input type="text" value={to} onChange={e => setTo(e.target.value)}
+              placeholder="0x…"
+              disabled={status === 'signing' || status === 'mining'}
+              className={`w-full bg-polkadot-dark border rounded-xl px-4 py-2.5 text-xs font-mono text-white placeholder-gray-700 outline-none transition-colors ${
+                to && !toValid  ? 'border-red-500/40'
+                : to && toValid ? 'border-emerald-500/30'
+                :                 'border-polkadot-border focus:border-polkadot-pink/40'
+              }`}
+            />
+            {to && !toValid && (
+              <p className="text-[9px] font-bold text-red-400">✗ Invalid EVM address</p>
             )}
+          </div>
 
-            {errMsg && <div className="text-red-400 text-[10px] font-black uppercase text-center">{errMsg}</div>}
+          {/* Amount */}
+          <div className="space-y-1.5">
+            <div className="flex items-center justify-between">
+              <div className="text-[8px] font-bold uppercase tracking-widest text-gray-700">Amount</div>
+              {isConnected && (
+                <button onClick={setMax}
+                  className="text-[9px] font-bold uppercase tracking-widest text-polkadot-pink hover:opacity-70 transition-opacity">
+                  Max
+                </button>
+              )}
+            </div>
+            <div className={`flex items-center bg-polkadot-dark border rounded-xl overflow-hidden transition-colors ${
+              amount && !amtValid  ? 'border-red-500/40'
+              : amount && amtValid ? 'border-emerald-500/30'
+              :                      'border-polkadot-border focus-within:border-polkadot-pink/40'
+            }`}>
+              <input type="number" value={amount} onChange={e => setAmount(e.target.value)}
+                placeholder="0.0" min="0" step="0.001"
+                disabled={status === 'signing' || status === 'mining'}
+                className="flex-1 bg-transparent px-4 py-2.5 text-sm font-mono text-white placeholder-gray-700 outline-none"
+              />
+              <span className="px-4 text-[9px] font-black uppercase tracking-widest text-gray-700 border-l border-polkadot-border">
+                PAS
+              </span>
+            </div>
+            {amount && !amtValid && amtNum > balance && (
+              <p className="text-[9px] font-bold text-red-400">✗ Insufficient balance</p>
+            )}
+            {amount && amtValid && (
+              <p className="text-[9px] text-gray-700">
+                Remaining: <span className="text-gray-600">{(balance - amtNum).toFixed(4)} PAS</span>
+              </p>
+            )}
+          </div>
+
+          {/* Status banners */}
+          {status === 'signing' && (
+            <div className="flex items-center gap-2.5 bg-yellow-500/5 border border-yellow-500/20 rounded-xl px-4 py-2.5">
+              <span className="w-3 h-3 border-2 border-yellow-400 border-t-transparent rounded-full animate-spin shrink-0" />
+              <span className="text-[9px] font-bold uppercase tracking-widest text-yellow-400">Check MetaMask…</span>
+            </div>
+          )}
+          {status === 'mining' && (
+            <div className="flex items-center gap-2.5 bg-blue-500/5 border border-blue-500/20 rounded-xl px-4 py-2.5">
+              <span className="w-3 h-3 border-2 border-blue-400 border-t-transparent rounded-full animate-spin shrink-0" />
+              <span className="text-[9px] font-bold uppercase tracking-widest text-blue-400 flex-1">Mining on Hub…</span>
+              {txHash && (
+                <a href={`${EXPLORER}/tx/${txHash}`} target="_blank" rel="noopener noreferrer"
+                  className="text-[9px] font-bold uppercase text-gray-600 hover:text-polkadot-pink transition-colors shrink-0">
+                  View ↗
+                </a>
+              )}
+            </div>
+          )}
+          {status === 'success' && (
+            <div className="bg-emerald-500/5 border border-emerald-500/20 rounded-xl px-4 py-3 space-y-1.5">
+              <div className="text-[9px] font-bold uppercase tracking-widest text-emerald-400">✓ Confirmed</div>
+              {txHash && (
+                <a href={`${EXPLORER}/tx/${txHash}`} target="_blank" rel="noopener noreferrer"
+                  className="block font-mono text-[9px] text-gray-600 hover:text-polkadot-pink truncate transition-colors">
+                  {txHash} ↗
+                </a>
+              )}
+              <button onClick={reset}
+                className="text-[9px] font-bold uppercase tracking-widest text-gray-600 hover:text-gray-400 transition-colors">
+                Send Another →
+              </button>
+            </div>
+          )}
+          {status === 'error' && (
+            <div className="bg-red-500/5 border border-red-500/20 rounded-xl px-4 py-3 space-y-1.5">
+              <div className="text-[9px] font-bold uppercase tracking-widest text-red-400">✗ {errMsg}</div>
+              <button onClick={reset}
+                className="text-[9px] font-bold uppercase tracking-widest text-gray-600 hover:text-gray-400 transition-colors">
+                Try Again →
+              </button>
+            </div>
+          )}
+
+          {/* Send button */}
+          {status !== 'success' && (
+            <button onClick={handleSend} disabled={!canSend}
+              className="w-full py-3 bg-polkadot-pink hover:bg-pink-600 disabled:opacity-40 disabled:cursor-not-allowed text-white font-bold text-xs uppercase tracking-widest rounded-xl transition-all shadow-[0_0_12px_rgba(230,0,122,0.2)]">
+              {!isConnected          ? 'Connect Wallet to Send'
+              : isWrongNetwork       ? 'Switch to PAS TestNet'
+              : status === 'signing' ? 'Confirm in MetaMask…'
+              : status === 'mining'  ? 'Confirming On-Chain…'
+              : 'Send PAS'}
+            </button>
+          )}
+        </div>
+      </div>
+
+      {/* Info row — network + tips side by side */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+
+        {/* Network */}
+        <div className="bg-polkadot-card border border-polkadot-border rounded-2xl overflow-hidden">
+          <div className="px-4 py-3 border-b border-polkadot-border bg-black/20">
+            <span className="text-[9px] font-black uppercase tracking-widest text-gray-500">Network</span>
+          </div>
+          <div className="grid grid-cols-1 gap-px bg-polkadot-border">
+            {([
+              ['Name',     pasTestnet.name],
+              ['Chain ID', pasTestnet.id.toString()],
+              ['Token',    `${pasTestnet.nativeCurrency.name} (${pasTestnet.nativeCurrency.symbol})`],
+              ['Decimals', pasTestnet.nativeCurrency.decimals.toString()],
+            ] as [string, string][]).map(([k, v]) => (
+              <div key={k} className="bg-polkadot-card px-4 py-2.5 flex justify-between items-center gap-3">
+                <span className="text-[8px] font-bold uppercase tracking-widest text-gray-700 shrink-0">{k}</span>
+                <span className="text-[9px] font-mono text-gray-500 text-right break-all">{v}</span>
+              </div>
+            ))}
           </div>
         </div>
 
-        <div className="lg:col-span-4 space-y-6">
-          <div className="bg-polkadot-card border border-polkadot-border rounded-3xl p-6 space-y-4">
-            <h3 className="text-[10px] text-gray-500 font-black uppercase tracking-widest">Network Info</h3>
-            <div className="space-y-3">
-              {[ ['Network', 'Paseo'], ['ID', pasTestnet.id.toString()], ['Symbol', 'PAS'] ].map(([k, v]) => (
-                <div key={k} className="flex justify-between items-center text-[10px] font-bold">
-                  <span className="text-gray-600 uppercase">{k}</span>
-                  <span className="font-mono text-gray-300">{v}</span>
+        {/* Tips + contracts */}
+        <div className="space-y-3">
+          <div className="bg-polkadot-card border border-polkadot-border rounded-2xl overflow-hidden">
+            <div className="px-4 py-3 border-b border-polkadot-border bg-black/20">
+              <span className="text-[9px] font-black uppercase tracking-widest text-gray-500">Tips</span>
+            </div>
+            <div className="px-4 py-3 space-y-2">
+              {[
+                'Keep ~0.001 PAS for gas.',
+                'Confirms in ~6–12 s on PAS TestNet.',
+                'EVM-format addresses only (0x…).',
+              ].map((tip, i) => (
+                <div key={i} className="flex gap-2">
+                  <span className="text-polkadot-pink font-black text-[9px] shrink-0">→</span>
+                  <span className="text-[9px] text-gray-600 leading-relaxed">{tip}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          <div className="bg-polkadot-card border border-polkadot-border rounded-2xl overflow-hidden">
+            <div className="px-4 py-3 border-b border-polkadot-border bg-black/20">
+              <span className="text-[9px] font-black uppercase tracking-widest text-gray-500">Contracts</span>
+            </div>
+            <div className="px-4 py-3 space-y-2">
+              {([
+                ['ScoreNFT', SCORE_NFT_PROXY],
+                ['Lending',  import.meta.env.VITE_LENDING_POOL],
+              ] as [string, string][]).filter(([, addr]) => addr).map(([label, addr]) => (
+                <div key={label}>
+                  <div className="text-[8px] font-bold uppercase tracking-widest text-gray-700">{label}</div>
+                  <a href={`${EXPLORER}/address/${addr}`} target="_blank" rel="noopener noreferrer"
+                    className="font-mono text-[9px] text-gray-600 hover:text-polkadot-pink transition-colors break-all">
+                    {addr} ↗
+                  </a>
                 </div>
               ))}
             </div>

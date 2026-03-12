@@ -1,362 +1,296 @@
-# VeraScore — AI Credit Scoring on Polkadot Hub
+# VeraScore v2
 
-> **Hackathon 2026 · Polkadot Hub (PAS TestNet · Chain ID: 420420417)**
+> AI-powered on-chain credit scoring for Polkadot Hub — OpenGuild Polkadot Solidity Hackathon 2026
 
-VeraScore analyses your on-chain wallet history using Mistral AI and mints a permanent, soulbound NFT credential directly on Polkadot Hub. No centralised database. No transferable token. Your score lives on-chain forever.
+**Live demo:** `https://YOUR_FRONTEND_URL`  
+**Backend API:** `https://YOUR_BACKEND_URL`  
+**GitHub:** `https://github.com/Agihtaws/VeraScore`  
+**Chain:** Polkadot Hub TestNet (Chain ID `420420417`, Paseo Asset Hub)  
+**Explorer:** [polkadot.testnet.routescan.io](https://polkadot.testnet.routescan.io)
 
 ---
 
-## 🔗 Links
+## What Is VeraScore?
 
-| | |
+VeraScore reads your Polkadot Hub wallet history — native balance, USDT/USDC holdings, transaction count, account age, metadata complexity — and feeds it to **Mistral AI** to generate a credit score from **0–1100**.
+
+The score is minted as a **soulbound NFT** on Polkadot Hub TestNet via a backend-controlled issuer key. Scores expire after 30 days and can be refreshed. A leaderboard ranks all scored wallets on-chain.
+
+The entire flow runs on Solidity contracts deployed to Polkadot Hub's EVM, queried via the Polkadot API (`polkadot-api`) and served through a Viem + Wagmi frontend.
+
+---
+
+## Architecture
+
+```
+Frontend (Vite + React + Wagmi + Viem)
+    │
+    ├── reads chain state directly via Viem public client (RPC)
+    ├── wallet connect via MetaMask (injected) or WalletConnect
+    └── calls Backend API for:
+            score minting, leaderboard, stablecoin transfers, fee info
+
+Backend (Node.js + Express + TypeScript)
+    │
+    ├── polkadot-api (PAPI)   → reads Substrate storage (balances, assets, nonce)
+    ├── ethers.js             → calls EVM contracts (ScoreNFT, LendingPool)
+    ├── @polkadot/api         → signs & submits Substrate extrinsics (assets.transfer)
+    ├── Mistral AI            → generates score + reasoning from chain data
+    └── better-sqlite3        → caches scores, history, leaderboard
+
+Contracts (Solidity ^0.8.20, deployed via Hardhat)
+    ├── ScoreNFT v3 (proxy)   → soulbound score NFT, breakdown tracking
+    └── LendingPool           → collateral deposit / borrow / repay / withdraw
+```
+
+---
+
+## Contracts
+
+| Contract | Address |
 |---|---|
-| 🌐 **Live Demo** | `https://YOUR_FRONTEND_URL_HERE` |
-| 🎥 **Demo Video** | `https://youtube.com/watch?v=YOUR_VIDEO_ID_HERE` |
-| 💻 **GitHub** | `https://github.com/YOUR_USERNAME/verascore` |
-| 🔍 **Contract on Routescan** | https://polkadot.testnet.routescan.io/address/0xbb778Ec1482bbdF08527c1cac1569662caf1faAE |
+| ScoreNFT v3 Proxy | `0xbb778Ec1482bbdF08527c1cac1569662caf1faAE` |
+| LendingPool | `0xE4a4E3455B0928d02E18C7d0af55a0840cf4de47` |
+| USDT Precompile (asset 1984) | `0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF07C0` |
+| USDC Precompile (asset 1337) | `0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF0539` |
+
+**RPC:** `https://services.polkadothub-rpc.com/testnet`  
+**WS:** `wss://asset-hub-paseo.dotters.network`
 
 ---
 
-## 📦 Deployed Contracts — PAS TestNet
+## Score Breakdown
 
-| Contract | Address | Notes |
+| Category | Max Points |
+|---|---|
+| Transaction Activity | 200 |
+| USDT Holding | 200 |
+| Account Complexity | 200 |
+| Native Balance | 150 |
+| USDC Holding | 150 |
+| Account Age | 100 |
+| Runtime Modernity | 100 |
+| **Total** | **1100** |
+
+Scores expire after **30 days**. One re-score allowed per wallet per **60 minutes**.
+
+---
+
+## Features
+
+### Frontend Pages
+
+| Page | Route | Description |
 |---|---|---|
-| **ScoreNFT Proxy** (permanent) | `0xbb778Ec1482bbdF08527c1cac1569662caf1faAE` | Never changes — UUPS upgradeable |
-| **ScoreNFT v3 Implementation** | `0x00b956ADBeC93EE687975546edAEEffD070B1C57` | Current logic contract |
-| **VeraLendingPool** | `0xE4a4E3455B0928d02E18C7d0af55a0840cf4de47` | Demo lending protocol |
+| Home / Score | `home` | Connect wallet, request AI score, view NFT + breakdown |
+| Score Lookup | `lookup` | Look up any address or compare two wallets |
+| Leaderboard | `leaderboard` | On-chain ranking of all scored wallets |
+| Lending Demo | `lending` | Deposit PAS, borrow against score, repay/withdraw |
+| Send PAS | `send-pas` | Native PAS transfer via MetaMask |
+| Send Stablecoin | `send-stable` | Backend-signed USDT/USDC transfer (no wallet needed) |
+| Fee Calculator | `fee-calc` | Live gas estimation for all VeraScore operations |
+| Create Wallet | `create-wallet` | BIP39 wallet generator, fully client-side |
 
-> The proxy address is what users and integrations should use. The implementation can be upgraded without changing the proxy address.
+### Backend API Endpoints
 
----
-
-## 🏗 Architecture
-
-```
-┌─────────────────────────────────────────────────────┐
-│  Browser (React + Viem + Wagmi)                     │
-│  ├── Score page      → request + mint NFT           │
-│  ├── Lookup page     → view any wallet's score      │
-│  ├── Leaderboard     → top scorers on-chain         │
-│  ├── Lending Demo    → borrow against score         │
-│  ├── Send PAS        → native token transfer        │
-│  ├── Fee Calculator  → estimate tx fees             │
-│  └── Create Wallet   → onboard new users            │
-└────────────────┬────────────────────────────────────┘
-                 │ HTTPS
-┌────────────────▼────────────────────────────────────┐
-│  Backend (Express + TypeScript)                     │
-│  ├── POST /:address   → score + sign EIP-712        │
-│  ├── GET  /:address   → fetch score history (DB)    │
-│  ├── POST /relay      → relay mint tx (backend pays)│
-│  └── GET  /fee-info   → gas estimate + balance check│
-└────────────────┬────────────────────────────────────┘
-                 │
-       ┌─────────┴──────────┐
-       │                    │
-┌──────▼──────┐    ┌────────▼────────┐
-│ Mistral AI  │    │ Polkadot-API    │
-│ (scoring)   │    │ (PAPI/WS chain  │
-└─────────────┘    │  data reader)   │
-                   └─────────────────┘
-                            │
-                   ┌────────▼────────┐
-                   │  ScoreNFT v3    │
-                   │  (Solidity)     │
-                   │  EIP-712 mint   │
-                   │  Soulbound NFT  │
-                   │  On-chain SVG   │
-                   └─────────────────┘
-```
+| Method | Path | Description |
+|---|---|---|
+| `POST` | `/score` | Score a wallet — reads chain, calls Mistral, mints NFT |
+| `GET` | `/score/:address` | Get current score + breakdown + history |
+| `GET` | `/score/leaderboard` | Top 50 scored wallets |
+| `GET` | `/verify/:address` | Verify NFT exists and is not expired |
+| `GET` | `/balances/:address` | USDT + USDC balance for any EVM address |
+| `GET` | `/lending/:address` | Lending pool position for an address |
+| `GET` | `/fee-info` | Live gas price + estimated fees per operation |
+| `GET` | `/transfer/sender` | Backend wallet SS58 + current USDT/USDC balances |
+| `POST` | `/transfer` | Transfer USDT or USDC from backend wallet |
+| `GET` | `/health` | Health check |
 
 ---
 
-## 📁 Project Structure
+## Project Structure
 
 ```
 verascore-v2/
-├── contracts/               # Hardhat project
-│   ├── contracts/
-│   │   ├── ScoreNFTv3.sol   # Main NFT contract (current)
-│   │   ├── ScoreNFTv2.sol   # Previous implementation
-│   │   └── VeraLendingPool.sol
-│   ├── scripts/
-│   │   ├── deploy.ts        # Fresh deploy (proxy + impl)
-│   │   ├── upgrade.ts       # Upgrade proxy to new impl
-│   │   ├── upgradeV3.ts     # V2 → V3 upgrade script
-│   │   └── deployLending.ts # Deploy lending pool
-│   ├── hardhat.config.ts
-│   └── .env                 # PRIVATE_KEY
-│
-├── backend/                 # Express API
+├── frontend/                        # Vite + React + TypeScript
 │   ├── src/
-│   │   ├── routes/
-│   │   │   ├── score.ts     # Main scoring + relay route
-│   │   │   └── feeInfo.ts   # Gas info endpoint
-│   │   ├── scoring/
-│   │   │   ├── mistralScorer.ts  # Mistral AI integration
-│   │   │   └── signer.ts         # EIP-712 signing
-│   │   ├── chain/
-│   │   │   └── papiReader.ts     # Polkadot-API chain reader
-│   │   └── db/
-│   │       └── database.ts       # SQLite score history
-│   └── .env                 # API keys + contract address
+│   │   ├── pages/
+│   │   │   ├── Home.tsx             # Score page (connected + disconnected)
+│   │   │   ├── Lookup.tsx           # Score lookup + compare
+│   │   │   ├── Leaderboard.tsx      # On-chain leaderboard
+│   │   │   ├── LendingDemo.tsx      # Lending pool UI
+│   │   │   ├── SendPAS.tsx          # Native token transfer
+│   │   │   ├── SendStablecoin.tsx   # Backend-signed stablecoin transfer
+│   │   │   ├── FeeCalculator.tsx    # Gas estimator
+│   │   │   └── CreateWallet.tsx     # BIP39 wallet generator
+│   │   ├── components/
+│   │   │   ├── Sidebar.tsx          # Navigation
+│   │   │   ├── ScoreCard.tsx        # Score + breakdown display
+│   │   │   ├── NFTViewer.tsx        # On-chain NFT metadata viewer
+│   │   │   └── HistoryChart.tsx     # Score history sparkline
+│   │   ├── utils/
+│   │   │   └── wagmi.ts             # Chain config + contract addresses
+│   │   └── App.tsx                  # Root, wallet connection, routing
+│   ├── vite.config.ts               # Dev proxy → backend
+│   └── tailwind.config.js
 │
-└── frontend/                # Vite + React + Tailwind
-    ├── src/
-    │   ├── pages/
-    │   │   ├── Home.tsx         # Score request + mint
-    │   │   ├── Lookup.tsx       # Look up any address
-    │   │   ├── Leaderboard.tsx  # Top scores
-    │   │   ├── LendingDemo.tsx  # Borrow demo
-    │   │   ├── SendPAS.tsx      # Send PAS tokens
-    │   │   ├── FeeCalculator.tsx
-    │   │   └── CreateWallet.tsx # New user onboarding
-    │   ├── components/
-    │   │   ├── ScoreCard.tsx    # Score + chain data display
-    │   │   ├── NFTViewer.tsx    # On-chain SVG render
-    │   │   ├── HistoryChart.tsx # Score history chart
-    │   │   └── Sidebar.tsx      # Navigation
-    │   ├── hooks/
-    │   │   ├── useScore.ts      # Full mint pipeline
-    │   │   └── useTotalScored.ts
-    │   └── utils/
-    │       └── wagmi.ts         # Chain config
-    └── .env                 # Contract address
+└── backend/                         # Express + TypeScript
+    └── src/
+        ├── routes/
+        │   ├── score.ts             # Score + NFT minting
+        │   ├── verify.ts            # NFT verification
+        │   ├── lending.ts           # Pool position reads
+        │   ├── balances.ts          # USDT/USDC balance reads
+        │   ├── feeInfo.ts           # Live gas data
+        │   └── transfer.ts          # Substrate assets.transfer
+        ├── chain/
+        │   └── papiReader.ts        # PAPI: reads Substrate storage
+        ├── scoring/
+        │   ├── mistralScorer.ts     # Mistral AI scoring
+        │   └── signer.ts            # ISSUER_PRIVATE_KEY signing
+        └── db/
+            └── database.ts          # SQLite score cache
 ```
 
 ---
 
-## ✅ Quick Test Guide
-
-| Page | Key things to check |
-|---|---|
-| **Score** | Connect MetaMask → Generate Score → confirm MetaMask popup → NFT appears. Try wrong network (auto-switch fires). Type different address → amber mismatch warning blocks submission. Already-minted wallet → cooldown countdown. |
-| **Lookup** | Paste any `0x` address → shows score card + chain data (PAS, USDT, USDC, nonce). |
-| **Leaderboard** | Top wallets ranked, tier badges coloured, address links to Routescan. |
-| **Lending** | Borrow limit scales with score. Borrow/repay buttons trigger contract. |
-| **Send PAS** | Address + amount validation, Max button, wrong network prompt, MetaMask → success. |
-| **Fee Calc** | Live gas price fetched, estimates shown, refresh works. |
-| **Create Wallet** | Generate → reveal seed (blurred) → checkbox → private key (blurred) → Add to MetaMask → faucet link → Go to Score. |
-| **Sidebar** | Block number ticks, wallet counter live, NEW badge on wallet page, all nav works. |
-
----
-
-## 🚀 Local Development
+## Local Setup
 
 ### Prerequisites
-- Node.js v22+
-- MetaMask browser extension
-- Mistral AI API key — https://console.mistral.ai
 
-### 1. Contracts
+- Node.js ≥ 22
+- MetaMask (or any injected EVM wallet)
+- Mistral AI API key ([console.mistral.ai](https://console.mistral.ai))
+
+### 1. Clone
 
 ```bash
-cd contracts
-cp .env.example .env
-# Edit .env — add your PRIVATE_KEY
-npm install
-npx hardhat compile
-```
-
-**Deploy fresh (if needed):**
-```bash
-npx hardhat run scripts/deploy.ts --network polkadotTestnet
-```
-
-**Upgrade to v3 (already done — proxy is live):**
-```bash
-npx hardhat run scripts/upgradeV3.ts --network polkadotTestnet
+git clone https://github.com/Agihtaws/VeraScore.git
+cd VeraScore
 ```
 
 ### 2. Backend
 
 ```bash
 cd backend
-cp .env.example .env
-# Edit .env — add MISTRAL_API_KEY and ISSUER_PRIVATE_KEY
 npm install
-npm run dev       # dev with ts-node
-npm run build     # compile to dist/
-npm start         # production
 ```
 
-**Backend `.env`:**
+Create `.env`:
+
 ```env
-MISTRAL_API_KEY=your_mistral_key
-ISSUER_PRIVATE_KEY=0x_your_deployer_private_key
-SCORE_NFT_PROXY=0xbb778Ec1482bbdF08527c1cac1569662caf1faAE
 PORT=3001
-FRONTEND_URL=http://localhost:5173
+MISTRAL_API_KEY=your_mistral_api_key
+
+# Issuer wallet — signs NFT mints and records breakdowns on-chain
+ISSUER_PRIVATE_KEY=0x...your_private_key...
+
+# Deployed contract addresses
+SCORE_NFT_PROXY=0xbb778Ec1482bbdF08527c1cac1569662caf1faAE
+LENDING_POOL=0xE4a4E3455B0928d02E18C7d0af55a0840cf4de47
+
+# Polkadot Hub TestNet
+RPC_URL=https://services.polkadothub-rpc.com/testnet
+WS_URL=wss://asset-hub-paseo.dotters.network
 ```
+
+```bash
+npm run dev        # ts-node with nodemon
+# or
+npm run build && npm start
+```
+
+Backend runs on `http://localhost:3001`.
 
 ### 3. Frontend
 
 ```bash
 cd frontend
-cp .env.example .env
 npm install
-npm run dev
 ```
 
-**Frontend `.env`:**
+Create `.env`:
+
 ```env
 VITE_SCORE_NFT_PROXY=0xbb778Ec1482bbdF08527c1cac1569662caf1faAE
-VITE_WALLETCONNECT_PROJECT_ID=your_project_id_here
+VITE_LENDING_POOL=0xE4a4E3455B0928d02E18C7d0af55a0840cf4de47
+VITE_WALLETCONNECT_PROJECT_ID=        # optional
 ```
-
-Open http://localhost:5173
-
----
-
-## ⏱ Changing Expiry & Cooldown (Testnet → Production)
-
-### Current testnet values (fast for demo)
-| Setting | Testnet | Production |
-|---|---|---|
-| Score expiry | 2 hours | 30 days |
-| Refresh cooldown | 5 minutes | 7 days |
-
----
-
-### Step 1 — Edit the Solidity contract
-
-Open `contracts/contracts/ScoreNFTv3.sol` and find **line ~56**:
-
-```solidity
-// TESTNET values — change before mainnet deploy:
-uint64 public constant EXPIRY_DURATION   = 2 hours;   // ← change to: 30 days
-uint64 public constant COOLDOWN_DURATION = 5 minutes;  // ← change to: 7 days
-```
-
-Change to:
-```solidity
-uint64 public constant EXPIRY_DURATION   = 30 days;
-uint64 public constant COOLDOWN_DURATION = 7 days;
-```
-
----
-
-### Step 2 — Recompile and upgrade the proxy
-
-Because `EXPIRY_DURATION` and `COOLDOWN_DURATION` are `constant` values, they are baked into the implementation bytecode — a proxy upgrade is required.
 
 ```bash
-cd contracts
-npx hardhat compile
-npx hardhat run scripts/upgrade.ts --network polkadotTestnet
+npm run dev        # Vite dev server on http://localhost:5173
 ```
 
-The upgrade script will:
-1. Deploy a new implementation contract
-2. Call `upgradeToAndCall()` on the proxy
-3. Print the new implementation address
+The Vite dev proxy forwards `/score`, `/verify`, `/balances`, `/lending`, `/fee-info`, `/transfer` to `localhost:3001`.
 
-**The proxy address stays the same** — `0xbb778Ec1482bbdF08527c1cac1569662caf1faAE`. No frontend or backend changes needed for the proxy address.
+```bash
+npm run build      # Production build → dist/
+```
 
 ---
 
-### Step 4 — Update frontend UI text
+## Demo Walkthrough
 
-Open `frontend/src/pages/Home.tsx` and find (~line 47, 60, 233):
+The recommended demo flow to showcase all features:
+
+1. **Score Wallet A** — connect `0x16fe…4c9f73`, hit *Get My Score*, watch Mistral reason about the wallet history, see the soulbound NFT mint on-chain
+2. **Send USDT to Wallet B** — go to Send Stablecoin, send USDT from backend wallet to `0x63ee…4a67`
+3. **Score Wallet B** — connect Wallet B, score it — higher USDT holding pushes the score up
+4. **Compare** — go to Lookup → Compare mode, paste both addresses side-by-side
+
+---
+
+## Key Technical Notes
+
+### EVM → SS58 Address Conversion
+
+Polkadot's Substrate pallets use SS58 addresses, not EVM `0x` addresses. The correct conversion pads the 20-byte EVM address to 32 bytes (left-aligned, zero-padded on the right):
 
 ```typescript
-// Change these strings:
-desc:  '...Valid 2 hours, refreshable after 5 minutes...'
-// → 'Valid 30 days, refreshable after 7 days'
-
-['2 hours', 'NFT validity'],
-['5 minutes', 'Refresh cooldown'],
-// → ['30 days', 'NFT validity'],
-// → ['7 days', 'Refresh cooldown'],
+const hex   = evmAddress.toLowerCase().replace('0x', '');
+const bytes = new Uint8Array(32);
+for (let i = 0; i < 20; i++) bytes[i] = parseInt(hex.slice(i * 2, i * 2 + 2), 16);
+const ss58 = encodeAddress(bytes, 42);
+// ⚠  evmToAddress() from @polkadot/util-crypto uses a DIFFERENT encoding — do NOT use it
 ```
 
-Also update the cooldown text on line ~650:
-```typescript
-// 'The 7-day cooldown prevents score manipulation.'
-// (already correct — no change needed)
-```
+### Stablecoin Transfers
+
+USDT and USDC on Polkadot Hub live in the **Substrate Assets pallet**, not as standard ERC-20 contracts. The backend uses `@polkadot/api` to call `assets.transfer(assetId, dest, amount)` — signed with the issuer key — making wallet-less transfers possible from the UI.
+
+### Score NFT
+
+The ScoreNFT is soulbound (non-transferable). It stores:
+- `score` (uint16, 0–1100)
+- `issuedAt` / `expiresAt` (unix timestamps, 30-day TTL)
+- `dataHash` (keccak256 of the raw chain data used for scoring)
+- Per-category `breakdown[6]` recorded via a separate `recordBreakdown` call after minting
+
+### Gas on Polkadot Hub TestNet
+
+- Block time: ~12–15 seconds
+- Gas price: ~1 Gwei (very cheap)
+- Typical operations: transfer ~21k gas, NFT mint ~145k gas, lending deposit ~95k gas
 
 ---
 
-## 🔑 Environment Variables Reference
-
-### `contracts/.env`
-```env
-PRIVATE_KEY=0x_deployer_wallet_private_key
-```
-
-### `backend/.env`
-```env
-MISTRAL_API_KEY=         # from console.mistral.ai
-ISSUER_PRIVATE_KEY=      # same as contracts PRIVATE_KEY
-SCORE_NFT_PROXY=0xbb778Ec1482bbdF08527c1cac1569662caf1faAE
-PORT=3001
-FRONTEND_URL=https://YOUR_FRONTEND_URL_HERE   # for CORS
-```
-
-### `frontend/.env`
-```env
-VITE_SCORE_NFT_PROXY=0xbb778Ec1482bbdF08527c1cac1569662caf1faAE
-VITE_WALLETCONNECT_PROJECT_ID=   # from cloud.walletconnect.com
-```
-
----
-
-## Backend (Railway / Render / Fly.io)
-```bash
-cd backend
-npm run build
-# Deploy dist/ with node dist/index.js
-# Set all env vars in dashboard
-# Note your backend URL: https://YOUR_BACKEND_URL_HERE
-```
-
-### Frontend (Vercel / Netlify)
-```bash
-cd frontend
-# Set VITE_BACKEND_URL=https://YOUR_BACKEND_URL_HERE in dashboard
-# Set VITE_SCORE_NFT_PROXY=0xbb778Ec1482bbdF08527c1cac1569662caf1faAE
-npm run build
-# Deploy dist/
-```
-
-> **CORS**: Update `FRONTEND_URL` in backend `.env` to your live frontend URL, then redeploy backend.
-
----
-
-## 🧠 How Scoring Works
-
-1. **Chain read** — Polkadot-API reads: PAS balance, USDT (asset 1337), USDC (asset 1984), WETH (foreign asset), nonce (tx count), wallet age (binary search over blocks)
-2. **AI scoring** — Mistral AI receives wallet data and scores 6 categories: Payment History, Credit Utilization, Wallet Age, Transaction Activity, Asset Diversity, Protocol Interactions. Total: 0–1000.
-3. **EIP-712 sign** — Backend issues a signed payload: `(wallet, score, dataHash, nonce, deadline)`. Signature is valid for 1 hour.
-4. **Mint** — User submits the signed payload to `ScoreNFT.mintScore()` via MetaMask (or backend relay). Contract verifies the EIP-712 signature and mints a soulbound NFT.
-5. **On-chain SVG** — `tokenURI()` generates the full SVG entirely in Solidity. No IPFS. No off-chain renderer.
-
----
-
-## 🔒 Security Notes
-
-- **Soulbound** — `_update()` is overridden to block all transfers. Score NFTs cannot be sold.
-- **Replay protection** — EIP-712 nonces prevent the same signature being used twice.
-- **Issuer-only minting** — Only the wallet set as `issuer` in the contract can produce valid signatures.
-- **On-chain cooldown** — 7-day (or testnet: 5-min) cooldown enforced in Solidity, not just the backend.
-- **Private keys** — Never committed. Always use `.env` files listed in `.gitignore`.
-
----
-
-## 🛠 Tech Stack
+## Stack
 
 | Layer | Technology |
 |---|---|
-| Smart Contract | Solidity 0.8.28, OpenZeppelin UUPS upgradeable, EIP-712 |
-| Contract Deploy | Hardhat, ethers.js |
-| Backend | Node.js, Express, TypeScript, Polkadot-API, ethers.js |
-| AI Scoring | Mistral AI (mistral-small-latest) |
-| Database | SQLite (score history) |
-| Frontend | React 18, TypeScript, Vite, Tailwind CSS |
-| Web3 Frontend | Viem 2.x, Wagmi 2.x, MetaMask injected |
-| Chain | Polkadot Hub PAS TestNet (EVM-compatible, Chain ID: 420420417) |
+| Frontend framework | React 18 + TypeScript + Vite |
+| Styling | Tailwind CSS v3 |
+| Wallet / chain reads | Wagmi v2 + Viem 2.38 |
+| Backend runtime | Node.js 22 + Express 4 |
+| Chain reads (Substrate) | polkadot-api (PAPI) v1 |
+| Chain reads (EVM) | ethers.js v6 |
+| Substrate transactions | @polkadot/api v14 |
+| AI scoring | Mistral AI (`mistral-large-latest`) |
+| Score cache | better-sqlite3 |
+| Contracts | Solidity 0.8.20, Hardhat + Ignition |
 
 ---
 
-*Built for Polkadot Hackathon 2026 · VeraScore*
+## License
+
+MIT — built for the OpenGuild Polkadot Solidity Hackathon 2026.

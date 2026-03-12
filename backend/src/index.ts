@@ -6,13 +6,14 @@ import { verifyRouter } from './routes/verify.js';
 import { lendingRouter }from './routes/lending.js';
 import { feeInfoRouter }  from './routes/feeInfo.js';
 import { balancesRouter }  from './routes/balances.js';
+import { transferRouter }  from './routes/transfer.js';
 
-// ── Env validation — Added LENDING_POOL_ADDRESS to the required list ───
+// ── Env validation ────────────────────────────────────────────────────────────
 const REQUIRED_ENV = [
   'MISTRAL_API_KEY',
   'ISSUER_PRIVATE_KEY',
   'SCORE_NFT_PROXY',
-  'LENDING_POOL_ADDRESS', // Added this for safety!
+  'LENDING_POOL_ADDRESS',
 ] as const;
 
 for (const key of REQUIRED_ENV) {
@@ -47,7 +48,6 @@ app.use((req: Request, res: Response, next: NextFunction) => {
 
 // ── CORS ──────────────────────────────────────────────────────────────────────
 const defaultCors = cors({ origin: FRONTEND_URL, credentials: true });
-// Open CORS for public verification and lending integrations
 const openCors    = cors({ origin: '*', methods: ['GET', 'OPTIONS'], allowedHeaders: ['Content-Type', 'Authorization'] });
 
 // ── Routes ────────────────────────────────────────────────────────────────────
@@ -56,8 +56,8 @@ app.use('/verify',   openCors,    verifyRouter);
 app.use('/lending',  openCors,    lendingRouter);
 app.use('/fee-info', defaultCors, feeInfoRouter);
 app.use('/balances', defaultCors, balancesRouter);
+app.use('/transfer', defaultCors, transferRouter);
 
-// Handle preflight for public routes
 app.options('/verify/*',  openCors);
 app.options('/lending/*', openCors);
 
@@ -96,8 +96,8 @@ app.listen(PORT, () => {
   console.log(`│  Proxy:    ${(process.env.SCORE_NFT_PROXY?.slice(0, 10) + '...' + process.env.SCORE_NFT_PROXY?.slice(-10)).padEnd(42)}│`);
   console.log(`│  Frontend: ${FRONTEND_URL.padEnd(42)}│`);
   console.log('├──────────────────────────────────────────────────────┤');
-  console.log('│  Speed:     Optimized (No Sidecar timeouts)         │');
-  console.log('│  Logging:   Enabled (Static Network mode)           │');
+  console.log('│  Routes:   /score /verify /lending /fee-info        │');
+  console.log('│            /balances /transfer /health               │');
   console.log('└──────────────────────────────────────────────────────┘');
   console.log('');
 });
