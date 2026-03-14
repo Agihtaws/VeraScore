@@ -14,7 +14,7 @@
 
 VeraScore reads your Polkadot Hub wallet history — native balance, USDT/USDC holdings, transaction count, account age, metadata complexity — and feeds it to **Mistral AI** to generate a credit score from **0–1100**.
 
-The score is minted as a **soulbound NFT** on Polkadot Hub TestNet via a backend-controlled issuer key. Scores expire after 30 days and can be refreshed. A leaderboard ranks all scored wallets on-chain.
+The score is minted as a **soulbound NFT** on Polkadot Hub TestNet via a backend-controlled issuer key. Scores expire after **2 hours** and can be refreshed after a **5‑minute cooldown**. A leaderboard ranks all scored wallets on-chain.
 
 The entire flow runs on Solidity contracts deployed to Polkadot Hub's EVM, queried via the Polkadot API (`polkadot-api`) and served through a Viem + Wagmi frontend.
 
@@ -45,7 +45,7 @@ Contracts (Solidity ^0.8.20, deployed via Hardhat)
 
 ---
 
-## Contracts
+## Contracts (TestNet)
 
 | Contract | Address |
 |---|---|
@@ -72,7 +72,9 @@ Contracts (Solidity ^0.8.20, deployed via Hardhat)
 | Runtime Modernity | 100 |
 | **Total** | **1100** |
 
-Scores expire after **30 days**. One re-score allowed per wallet per **60 minutes**.
+- **Validity period:** 2 hours (testnet, configurable for mainnet)
+- **Cooldown:** 5 minutes after the previous mint
+- **Backend rate limit:** 3 score requests per hour per address (failed attempts do **not** count)
 
 ---
 
@@ -95,7 +97,8 @@ Scores expire after **30 days**. One re-score allowed per wallet per **60 minute
 
 | Method | Path | Description |
 |---|---|---|
-| `POST` | `/score` | Score a wallet — reads chain, calls Mistral, mints NFT |
+| `POST` | `/score` | Score a wallet — reads chain, calls Mistral, returns signed payload |
+| `POST` | `/score/:address/confirm` | Confirm mint (store tx hash, record breakdown on-chain) |
 | `GET` | `/score/:address` | Get current score + breakdown + history |
 | `GET` | `/score/leaderboard` | Top 50 scored wallets |
 | `GET` | `/verify/:address` | Verify NFT exists and is not expired |
@@ -128,6 +131,9 @@ verascore-v2/
 │   │   │   ├── ScoreCard.tsx        # Score + breakdown display
 │   │   │   ├── NFTViewer.tsx        # On-chain NFT metadata viewer
 │   │   │   └── HistoryChart.tsx     # Score history sparkline
+│   │   ├── hooks/
+│   │   │   ├── useScore.ts          # Core scoring & minting logic
+│   │   │   └── useTotalScored.ts    # Total scored wallets count
 │   │   ├── utils/
 │   │   │   └── wagmi.ts             # Chain config + contract addresses
 │   │   └── App.tsx                  # Root, wallet connection, routing
@@ -137,7 +143,7 @@ verascore-v2/
 └── backend/                         # Express + TypeScript
     └── src/
         ├── routes/
-        │   ├── score.ts             # Score + NFT minting
+        │   ├── score.ts             # Score + NFT minting (rate-limited)
         │   ├── verify.ts            # NFT verification
         │   ├── lending.ts           # Pool position reads
         │   ├── balances.ts          # USDT/USDC balance reads
@@ -233,10 +239,10 @@ npm run build      # Production build → dist/
 
 The recommended demo flow to showcase all features:
 
-1. **Score Wallet A** — connect `0x16fe…4c9f73`, hit *Get My Score*, watch Mistral reason about the wallet history, see the soulbound NFT mint on-chain
-2. **Send USDT to Wallet B** — go to Send Stablecoin, send USDT from backend wallet to `0x63ee…4a67`
-3. **Score Wallet B** — connect Wallet B, score it — higher USDT holding pushes the score up
-4. **Compare** — go to Lookup → Compare mode, paste both addresses side-by-side
+1. **Score Wallet A** — connect `0x16fe…4c9f73`, hit *Get My Score*, watch Mistral reason about the wallet history, see the soulbound NFT mint on-chain.
+2. **Send USDT to Wallet B** — go to Send Stablecoin, send USDT from backend wallet to `0x63ee…4a67`.
+3. **Score Wallet B** — connect Wallet B, score it — higher USDT holding pushes the score up.
+4. **Compare** — go to Lookup → Compare mode, paste both addresses side-by-side.
 
 ---
 
@@ -262,62 +268,19 @@ USDT and USDC on Polkadot Hub live in the **Substrate Assets pallet**, not as st
 
 The ScoreNFT is soulbound (non-transferable). It stores:
 - `score` (uint16, 0–1100)
-- `issuedAt` / `expiresAt` (unix timestamps, 30-day TTL)
+- `issuedAt` / `expiresAt` (unix timestamps, **2 hours TTL** on testnet)
 - `dataHash` (keccak256 of the raw chain data used for scoring)
 - Per-category `breakdown[6]` recorded via a separate `recordBreakdown` call after minting
 
-### 30-Day Score Expiry
+### Score Expiry & Cooldown (TestNet)
 
-Scores are time-limited across all three layers to encourage wallets to stay active and re-score regularly.
+| Parameter | Value |
+|---|---|
+| Validity duration | **2 hours** |
+| Cooldown after mint | **5 minutes** |
+| Backend rate limit | 3 requests per hour (failed attempts **not** counted) |
 
-**Smart Contract (`ScoreNFT v3`)**
-
-The contract stores `issuedAt` and `expiresAt` (unix timestamps) on every token. `expiresAt` is set to `block.timestamp + 30 days` at mint time. A view function `isExpired(address)` returns `true` once the clock runs out. The contract does **not** burn the NFT — it stays on-chain as a historical record — but it is flagged as stale.
-
-```solidity
-uint256 public constant SCORE_TTL = 30 days;
-
-function mintScore(address to, uint16 score, bytes32 dataHash) external onlyIssuer {
-    // ...
-    tokens[tokenId].issuedAt  = block.timestamp;
-    tokens[tokenId].expiresAt = block.timestamp + SCORE_TTL;
-}
-
-function isExpired(address wallet) public view returns (bool) {
-    uint256 tid = addressToToken[wallet];
-    if (tid == 0) return true;
-    return block.timestamp > tokens[tid].expiresAt;
-}
-```
-
-**Backend (`score.ts`)**
-
-Before minting a fresh score the backend reads `isExpired()` from the contract. If the existing score is still valid and was issued less than 60 minutes ago, the request is rejected with a rate-limit error — preventing spam re-scores. If the score is expired (or doesn't exist), the full Mistral scoring pipeline runs and a new NFT is minted (re-using the same token ID via `updateScore`).
-
-```typescript
-const expired   = await contract.isExpired(address);
-const issuedAt  = await contract.getIssuedAt(address);
-const age       = Date.now() / 1000 - Number(issuedAt);
-
-if (!expired && age < 3600) {
-  return res.status(429).json({ error: 'Score still valid. Re-score allowed after 60 min.' });
-}
-// → run Mistral → mintScore / updateScore
-```
-
-**Frontend (`Home.tsx`, `ScoreCard.tsx`, `NFTViewer.tsx`)**
-
-The frontend reads `expiresAt` from the NFT metadata and computes `daysLeft = Math.ceil((expiresAt - now) / 86400)`. Three visual states are shown:
-
-| State | Condition | Display |
-|---|---|---|
-| Fresh | `daysLeft > 7` | Green badge — `VALID · Xd left` |
-| Expiring soon | `1 ≤ daysLeft ≤ 7` | Amber badge — `EXPIRES SOON · Xd` |
-| Expired | `daysLeft ≤ 0` | Red badge — `EXPIRED` + *Re-Score* CTA button |
-
-The *Get My Score* button on Home also checks expiry — if the score is expired it shows **"Score Expired — Refresh"** instead of the normal label, nudging the user to re-score.
-
----
+The contract enforces the cooldown; the backend rate limiter prevents excessive new scoring attempts even if the contract would allow it. The frontend displays live countdowns for both.
 
 ### Gas on Polkadot Hub TestNet
 
