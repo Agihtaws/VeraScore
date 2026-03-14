@@ -8,6 +8,7 @@ import { pasTestnet }              from '../utils/wagmi.js';
 
 const LENDING_POOL = (import.meta.env.VITE_LENDING_POOL ?? '') as `0x${string}`;
 const EXPLORER     = 'https://polkadot.testnet.routescan.io';
+const API_BASE = import.meta.env.VITE_API_BASE_URL ?? ''; // Add this
 
 const POOL_ABI = [
   { name: 'deposit',  type: 'function', stateMutability: 'payable',    inputs: [], outputs: [] },
@@ -230,7 +231,8 @@ export function LendingDemo() {
 
   const refetchAll = useCallback(() => {
     refetchPos(); refetchWithdrawable();
-    fetch('/lending/pool').then(r => r.json()).then(setPoolStats).catch(() => {});
+    fetch(`${API_BASE}/lending/pool`) // Updated
+      .then(r => r.json()).then(setPoolStats).catch(() => {});
     setRepayInput(''); setWithdrawInput(''); setRepayError(null); setWithdrawError(null);
   }, [refetchPos, refetchWithdrawable]);
 
@@ -241,10 +243,11 @@ export function LendingDemo() {
   const liqAction      = usePoolAction(refetchAll);
 
   useEffect(() => {
-    fetch('/lending/pool').then(r => r.json()).then(setPoolStats).catch(() => {});
+    fetch(`${API_BASE}/lending/pool`) // Updated
+      .then(r => r.json()).then(setPoolStats).catch(() => {});
     if (address) {
       setSimLoading(true);
-      fetch(`/lending/simulate/${address}?amount=1000`)
+      fetch(`${API_BASE}/lending/simulate/${address}?amount=1000`) // Updated
         .then(r => r.json())
         .then(data => { setSimResult(data); setSimLoading(false); })
         .catch(() => setSimLoading(false));
@@ -293,7 +296,7 @@ export function LendingDemo() {
     const fetchId = ++liqFetchId.current;
     setLiqLookingUp(true);
     try {
-      const r    = await fetch(`/lending/position/${addr}`);
+      const r    = await fetch(`${API_BASE}/lending/position/${addr}`); // Updated
       const data = await r.json();
       if (fetchId !== liqFetchId.current) return;
       if (!data.success || !data.active) {

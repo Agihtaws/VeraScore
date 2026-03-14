@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
 
 const EXPLORER = 'https://polkadot.testnet.routescan.io';
+const API_BASE = import.meta.env.VITE_API_BASE_URL ?? ''; // Add this
 
 const CAT_MAX: Record<string, number> = {
   transactionActivity: 200,
@@ -160,7 +161,7 @@ export function Leaderboard() {
   const load = useCallback(async () => {
     try {
       setLoading(true); setError(null);
-      const res  = await fetch('/score/leaderboard');
+      const res  = await fetch(`${API_BASE}/score/leaderboard`); // Updated
       if (!res.ok) throw new Error(`Server error ${res.status}`);
       const json = await res.json() as { success: boolean; entries: LeaderboardEntry[]; totalWallets: number };
       if (!json.success) throw new Error('Failed to load leaderboard');

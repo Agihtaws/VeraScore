@@ -12,6 +12,7 @@ import type { HistoryRecord } from '../types/index';
 import type { Page } from '../components/Sidebar';
 
 const EXPLORER = 'https://polkadot.testnet.routescan.io';
+const API_BASE = import.meta.env.VITE_API_BASE_URL ?? ''; // Add this line
 interface Props { onNavigate: (page: Page) => void; }
 
 const STAGES: { key: ScoreStatus; label: string }[] = [
@@ -80,7 +81,7 @@ export function Home({ onNavigate }: Props) {
   const [fullHistory, setFullHistory] = useState<HistoryRecord[]>([]);
   useEffect(() => {
     if (status !== 'done' || !payload?.wallet) return;
-    fetch(`/score/${payload.wallet}`)
+    fetch(`${API_BASE}/score/${payload.wallet}`) // Updated to use API_BASE
       .then(r => r.ok ? r.json() : null)
       .then(data => { if (data?.history) setFullHistory(data.history); })
       .catch(() => {});

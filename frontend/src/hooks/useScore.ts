@@ -4,6 +4,7 @@ import { createPublicClient, http }                 from 'viem';
 import type { ScoreBreakdown, RawChainData }        from '../types/index.js';
 
 const RPC_URL = 'https://services.polkadothub-rpc.com/testnet';
+const API_BASE = import.meta.env.VITE_API_BASE_URL ?? ''; // Add this line
 
 const PAS_TESTNET = {
   id:             420420417,
@@ -86,7 +87,7 @@ function parseRevertMessage(err: unknown): string {
 
 async function checkSufficientPAS(walletAddress: string): Promise<boolean> {
   try {
-    const res  = await fetch(`/fee-info/${walletAddress}`);
+    const res  = await fetch(`${API_BASE}/fee-info/${walletAddress}`); // Updated
     const json = await res.json() as { hasSufficientPas?: boolean };
     return json.hasSufficientPas ?? true;
   } catch {
@@ -181,7 +182,7 @@ export function useScore(): {
     console.log('✅ [useScore] onConfirmed called with txHash:', txHash);
     const data = pendingData.current;
     if (data) {
-      fetch(`/score/${data.wallet}/confirm`, {
+      fetch(`${API_BASE}/score/${data.wallet}/confirm`, { // Updated
         method:  'POST',
         headers: { 'Content-Type': 'application/json' },
         body:    JSON.stringify({ txHash, score: data.score, breakdown: data.breakdown }),
@@ -351,7 +352,7 @@ export function useScore(): {
     try {
       setStatus('scoring');
       console.log('🌐 [useScore] POST to /score');
-      const res  = await fetch(`/score/${walletAddress}`, {
+      const res  = await fetch(`${API_BASE}/score/${walletAddress}`, { // Updated
         method: 'POST',
         signal: AbortSignal.timeout(90_000),
       });
@@ -431,7 +432,7 @@ export function useScore(): {
         }
         setStatus('relay_submitting');
         console.log('🌐 [useScore] POST to /relay-mint');
-        const relayRes = await fetch(`/score/${walletAddress}/relay-mint`, {
+        const relayRes = await fetch(`${API_BASE}/score/${walletAddress}/relay-mint`, { // Updated
           method:  'POST',
           headers: { 'Content-Type': 'application/json' },
           body:    JSON.stringify({ score: data.score, dataHash: data.dataHash, deadline: data.deadline, signature: data.signature, userAuthSig }),

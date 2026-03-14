@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { isAddress } from 'viem';
 
 const EXPLORER = 'https://polkadot.testnet.routescan.io';
+const API_BASE = import.meta.env.VITE_API_BASE_URL ?? '';
 
 type Token  = 'USDT' | 'USDC';
 type Status = 'idle' | 'sending' | 'success' | 'error';
@@ -28,7 +29,7 @@ export function SendStablecoin() {
 
   useEffect(() => {
     setSenderLoading(true);
-    fetch('/transfer/sender')
+    fetch(`${API_BASE}/transfer/sender`)
       .then(r => r.json())
       .then(json => {
         if (json.success) {
@@ -41,7 +42,7 @@ export function SendStablecoin() {
 
   const refreshSender = useCallback(() => {
     setTimeout(() => {
-      fetch('/transfer/sender')
+      fetch(`${API_BASE}/transfer/sender`)
         .then(r => r.json())
         .then(json => {
           if (json.success) {
@@ -67,7 +68,7 @@ export function SendStablecoin() {
     if (!canSend) return;
     setStatus('sending'); setErrMsg(''); setTxHash('');
     try {
-      const res  = await fetch('/transfer', {
+      const res  = await fetch(`${API_BASE}/transfer`, {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body:   JSON.stringify({ to, amount: amtNum, token }),
       });

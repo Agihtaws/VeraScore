@@ -5,6 +5,7 @@ import { SCORE_NFT_PROXY }    from '../utils/wagmi';
 import type { HistoryRecord } from '../types/index';
 
 const EXPLORER = 'https://polkadot.testnet.routescan.io';
+const API_BASE = import.meta.env.VITE_API_BASE_URL ?? '';
 
 interface LookupResult {
   success:             boolean;
@@ -228,7 +229,7 @@ export function Lookup() {
     if (!isValidAddr(addr)) { setError('Enter a valid 0x address (42 chars)'); return; }
     setLoading(true); setError(null); setResult(null);
     try {
-      const res  = await fetch(`/score/${addr}`);
+      const res  = await fetch(`${API_BASE}/score/${addr}`);
       const json = await res.json() as LookupResult;
       if (!res.ok) throw new Error('Lookup failed. Please try again.');
       setResult(json);
@@ -249,7 +250,7 @@ export function Lookup() {
     setLoadingA(true); setLoadingB(true);
     const fetchOne = async (addr: string, setRes: typeof setResultA, setLoad: typeof setLoadingA) => {
       try {
-        const res = await fetch(`/score/${addr}`);
+        const res = await fetch(`${API_BASE}/score/${addr}`);
         setRes(await res.json() as LookupResult);
       } catch { setRes(null); }
       finally { setLoad(false); }
