@@ -2,6 +2,7 @@ import { jsx as _jsx, jsxs as _jsxs } from "react/jsx-runtime";
 import { useState, useEffect, useCallback } from 'react';
 import { isAddress } from 'viem';
 const EXPLORER = 'https://polkadot.testnet.routescan.io';
+const API_BASE = import.meta.env.VITE_API_BASE_URL ?? '';
 const TOKEN_CFG = {
     USDT: { color: 'text-emerald-400', border: 'border-emerald-500/30', bg: 'bg-emerald-500/5', dot: 'bg-emerald-400' },
     USDC: { color: 'text-blue-400', border: 'border-blue-500/30', bg: 'bg-blue-500/5', dot: 'bg-blue-400' },
@@ -18,7 +19,7 @@ export function SendStablecoin() {
     const cfg = TOKEN_CFG[token];
     useEffect(() => {
         setSenderLoading(true);
-        fetch('/transfer/sender')
+        fetch(`${API_BASE}/transfer/sender`)
             .then(r => r.json())
             .then(json => {
             if (json.success) {
@@ -30,7 +31,7 @@ export function SendStablecoin() {
     }, []);
     const refreshSender = useCallback(() => {
         setTimeout(() => {
-            fetch('/transfer/sender')
+            fetch(`${API_BASE}/transfer/sender`)
                 .then(r => r.json())
                 .then(json => {
                 if (json.success) {
@@ -60,7 +61,7 @@ export function SendStablecoin() {
         setErrMsg('');
         setTxHash('');
         try {
-            const res = await fetch('/transfer', {
+            const res = await fetch(`${API_BASE}/transfer`, {
                 method: 'POST', headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ to, amount: amtNum, token }),
             });

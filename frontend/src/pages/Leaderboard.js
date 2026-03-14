@@ -1,6 +1,7 @@
 import { jsx as _jsx, jsxs as _jsxs } from "react/jsx-runtime";
 import { useState, useEffect, useCallback } from 'react';
 const EXPLORER = 'https://polkadot.testnet.routescan.io';
+const API_BASE = import.meta.env.VITE_API_BASE_URL ?? ''; // Add this
 const CAT_MAX = {
     transactionActivity: 200,
     accountAge: 100,
@@ -78,7 +79,7 @@ export function Leaderboard() {
         try {
             setLoading(true);
             setError(null);
-            const res = await fetch('/score/leaderboard');
+            const res = await fetch(`${API_BASE}/score/leaderboard`); // Updated
             if (!res.ok)
                 throw new Error(`Server error ${res.status}`);
             const json = await res.json();

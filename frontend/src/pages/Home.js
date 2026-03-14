@@ -9,6 +9,7 @@ import { useScore } from '../hooks/useScore';
 import { useTotalScored } from '../hooks/useTotalScored';
 import { pasTestnet, SCORE_NFT_PROXY } from '../utils/wagmi';
 const EXPLORER = 'https://polkadot.testnet.routescan.io';
+const API_BASE = import.meta.env.VITE_API_BASE_URL ?? ''; // Add this line
 const STAGES = [
     { key: 'reading', label: 'Chain' },
     { key: 'scoring', label: 'AI' },
@@ -69,7 +70,7 @@ export function Home({ onNavigate }) {
     useEffect(() => {
         if (status !== 'done' || !payload?.wallet)
             return;
-        fetch(`/score/${payload.wallet}`)
+        fetch(`${API_BASE}/score/${payload.wallet}`) // Updated to use API_BASE
             .then(r => r.ok ? r.json() : null)
             .then(data => { if (data?.history)
             setFullHistory(data.history); })

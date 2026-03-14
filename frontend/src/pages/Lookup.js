@@ -4,6 +4,7 @@ import { HistoryChart } from '../components/HistoryChart';
 import { NFTViewer } from '../components/NFTViewer';
 import { SCORE_NFT_PROXY } from '../utils/wagmi';
 const EXPLORER = 'https://polkadot.testnet.routescan.io';
+const API_BASE = import.meta.env.VITE_API_BASE_URL ?? '';
 function scoreColor(s) {
     if (s >= 750)
         return 'text-emerald-400';
@@ -97,7 +98,7 @@ export function Lookup() {
         setError(null);
         setResult(null);
         try {
-            const res = await fetch(`/score/${addr}`);
+            const res = await fetch(`${API_BASE}/score/${addr}`);
             const json = await res.json();
             if (!res.ok)
                 throw new Error('Lookup failed. Please try again.');
@@ -127,7 +128,7 @@ export function Lookup() {
         setLoadingB(true);
         const fetchOne = async (addr, setRes, setLoad) => {
             try {
-                const res = await fetch(`/score/${addr}`);
+                const res = await fetch(`${API_BASE}/score/${addr}`);
                 setRes(await res.json());
             }
             catch {
