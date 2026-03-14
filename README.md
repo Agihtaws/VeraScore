@@ -4,7 +4,7 @@
 
 **Live demo:** [https://vera-score.vercel.app/](https://vera-score.vercel.app/)  
 
-**Backend API:** [https://verascore.onrender.com] (https://verascore.onrender.com) 
+**Backend API:** [https://verascore.onrender.com](https://verascore.onrender.com) 
 
 **GitHub:** [https://github.com/Agihtaws/VeraScore](https://github.com/Agihtaws/VeraScore)
 
