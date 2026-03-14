@@ -165,14 +165,14 @@ function ActionCard({ title, accent, children }: {
   );
 }
 
-function PasInput({ value, onChange, placeholder }: {
-  value: string; onChange: (v: string) => void; placeholder?: string;
+function PasInput({ value, onChange, placeholder, disabled }: {
+  value: string; onChange: (v: string) => void; placeholder?: string; disabled?: boolean;
 }) {
   return (
     <div className="relative">
       <input type="number" value={value} onChange={e => onChange(e.target.value)}
-        placeholder={placeholder ?? '0.00'}
-        className="w-full bg-polkadot-dark border border-polkadot-border rounded-xl px-4 py-2.5 text-sm font-mono text-white outline-none focus:border-polkadot-pink/40 placeholder-gray-700" />
+        placeholder={placeholder ?? '0.00'} disabled={disabled}
+        className="w-full bg-polkadot-dark border border-polkadot-border rounded-xl px-4 py-2.5 text-sm font-mono text-white outline-none focus:border-polkadot-pink/40 placeholder-gray-700 disabled:opacity-40 disabled:cursor-not-allowed" />
       <span className="absolute right-3 top-1/2 -translate-y-1/2 text-[9px] font-black text-gray-700 uppercase">PAS</span>
     </div>
   );
@@ -194,6 +194,10 @@ export function LendingDemo() {
   const [liqLookingUp,  setLiqLookingUp]  = useState(false);
   const [liqStatus,     setLiqStatus]     = useState<{ ok: boolean; detail: string } | null>(null);
   const liqFetchId = useRef(0);
+
+  // Local validation errors for repay/withdraw
+  const [repayError, setRepayError] = useState<string | null>(null);
+  const [withdrawError, setWithdrawError] = useState<string | null>(null);
 
   const [poolStats,  setPoolStats]  = useState<PoolStats | null>(null);
   const [simResult,  setSimResult]  = useState<SimResult | null>(null);
@@ -227,7 +231,7 @@ export function LendingDemo() {
   const refetchAll = useCallback(() => {
     refetchPos(); refetchWithdrawable();
     fetch('/lending/pool').then(r => r.json()).then(setPoolStats).catch(() => {});
-    setRepayInput(''); setWithdrawInput('');
+    setRepayInput(''); setWithdrawInput(''); setRepayError(null); setWithdrawError(null);
   }, [refetchPos, refetchWithdrawable]);
 
   const depositAction  = usePoolAction(refetchAll);
@@ -246,6 +250,42 @@ export function LendingDemo() {
         .catch(() => setSimLoading(false));
     }
   }, [address]);
+
+  // Validate repay input
+  useEffect(() => {
+    if (!repayInput) {
+      setRepayError(null);
+      return;
+    }
+    try {
+      const amountWei = parseEther(repayInput);
+      if (amountWei > effectiveDebt) {
+        setRepayError(`Maximum repay is ${fmtPas(effectiveDebt)} PAS`);
+      } else {
+        setRepayError(null);
+      }
+    } catch {
+      setRepayError('Invalid amount');
+    }
+  }, [repayInput, effectiveDebt]);
+
+  // Validate withdraw input
+  useEffect(() => {
+    if (!withdrawInput) {
+      setWithdrawError(null);
+      return;
+    }
+    try {
+      const amountWei = parseEther(withdrawInput);
+      if (amountWei > withdrawableAmount) {
+        setWithdrawError(`Maximum withdraw is ${fmtPas(withdrawableAmount)} PAS`);
+      } else {
+        setWithdrawError(null);
+      }
+    } catch {
+      setWithdrawError('Invalid amount');
+    }
+  }, [withdrawInput, withdrawableAmount]);
 
   async function lookupLiqTarget(addr: string) {
     setLiqTarget(addr);
@@ -275,6 +315,22 @@ export function LendingDemo() {
       if (fetchId === liqFetchId.current) setLiqLookingUp(false);
     }
   }
+
+  const handleRepay = useCallback(() => {
+    if (repayError) return;
+    repayAction.execute({
+      address: LENDING_POOL, abi: POOL_ABI, functionName: 'repay',
+      value: parseEther(repayInput || '0'), gas: GAS.repay,
+    });
+  }, [repayAction, repayInput, repayError]);
+
+  const handleWithdraw = useCallback(() => {
+    if (withdrawError) return;
+    withdrawAction.execute({
+      address: LENDING_POOL, abi: POOL_ABI, functionName: 'withdraw',
+      args: [parseEther(withdrawInput || '0')], gas: GAS.withdraw,
+    });
+  }, [withdrawAction, withdrawInput, withdrawError]);
 
   if (!LENDING_POOL) return (
     <div className="p-20 text-center text-xs uppercase font-black text-gray-600 tracking-widest italic">
@@ -442,14 +498,12 @@ export function LendingDemo() {
               Max: {fmtPas(effectiveDebt)} PAS
             </button>
           )}
-          <PasInput value={repayInput} onChange={setRepayInput}
+          <PasInput value={repayInput} onChange={setRepayInput} disabled={repayAction.status !== 'idle'}
             placeholder={effectiveDebt > 0n ? fmtPas(effectiveDebt) : '0.00'} />
+          {repayError && <p className="text-[9px] font-bold text-red-400 uppercase tracking-widest">⚠ {repayError}</p>}
           <button
-            onClick={() => repayAction.execute({
-              address: LENDING_POOL, abi: POOL_ABI, functionName: 'repay',
-              value: parseEther(repayInput || '0'), gas: GAS.repay,
-            })}
-            disabled={!isConnected || effectiveDebt === 0n || !repayInput || repayAction.status === 'signing' || repayAction.status === 'mining'}
+            onClick={handleRepay}
+            disabled={!isConnected || effectiveDebt === 0n || !repayInput || !!repayError || repayAction.status !== 'idle'}
             className="w-full py-3 bg-blue-500/10 border border-blue-500/20 text-blue-300 rounded-xl font-black text-xs uppercase tracking-widest hover:bg-blue-500/20 transition-all disabled:opacity-40 disabled:cursor-not-allowed">
             {repayAction.status === 'mining' ? 'Mining…' : repayAction.status === 'signing' ? 'Confirm…' : 'Repay'}
           </button>
@@ -464,14 +518,12 @@ export function LendingDemo() {
               Max: {fmtPas(withdrawableAmount)} PAS
             </button>
           )}
-          <PasInput value={withdrawInput} onChange={setWithdrawInput}
+          <PasInput value={withdrawInput} onChange={setWithdrawInput} disabled={withdrawAction.status !== 'idle'}
             placeholder={withdrawableAmount > 0n ? fmtPas(withdrawableAmount) : '0.00'} />
+          {withdrawError && <p className="text-[9px] font-bold text-red-400 uppercase tracking-widest">⚠ {withdrawError}</p>}
           <button
-            onClick={() => withdrawAction.execute({
-              address: LENDING_POOL, abi: POOL_ABI, functionName: 'withdraw',
-              args: [parseEther(withdrawInput || '0')], gas: GAS.withdraw,
-            })}
-            disabled={!isConnected || withdrawableAmount === 0n || !withdrawInput || withdrawAction.status === 'signing' || withdrawAction.status === 'mining'}
+            onClick={handleWithdraw}
+            disabled={!isConnected || withdrawableAmount === 0n || !withdrawInput || !!withdrawError || withdrawAction.status !== 'idle'}
             className="w-full py-3 bg-emerald-500/10 border border-emerald-500/20 text-emerald-300 rounded-xl font-black text-xs uppercase tracking-widest hover:bg-emerald-500/20 transition-all disabled:opacity-40 disabled:cursor-not-allowed">
             {withdrawAction.status === 'mining' ? 'Mining…' : withdrawAction.status === 'signing' ? 'Confirm…' : 'Withdraw'}
           </button>

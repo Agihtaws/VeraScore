@@ -76,15 +76,6 @@ export function Home({ onNavigate }: Props) {
     error.toLowerCase().includes('rate limited') ||
     error.toLowerCase().includes('try again in')
   );
-  const rateLimitDisplaySec = (() => {
-    if (rateLimitSec !== null && rateLimitSec > 0) return rateLimitSec;
-    if (!isRateLimitError || !error) return null;
-    const hourM = error.match(/([0-9]+)\s*hour/i);
-    const minM  = error.match(/([0-9]+)\s*min/i);
-    if (hourM) return parseInt(hourM[1]) * 3600;
-    if (minM)  return parseInt(minM[1]) * 60;
-    return 3600;
-  })();
 
   const [fullHistory, setFullHistory] = useState<HistoryRecord[]>([]);
   useEffect(() => {
@@ -109,18 +100,6 @@ export function Home({ onNavigate }: Props) {
     const id = setInterval(() => setNow(Math.floor(Date.now() / 1_000)), 1_000);
     return () => clearInterval(id);
   }, [status]);
-
-  const [scoringStart, setScoringStart] = useState<number | null>(null);
-  const [elapsed, setElapsed] = useState(0);
-  useEffect(() => {
-    if (status === 'scoring') { setScoringStart(Date.now()); setElapsed(0); }
-    else setScoringStart(null);
-  }, [status]);
-  useEffect(() => {
-    if (!scoringStart) return;
-    const id = setInterval(() => setElapsed(Math.floor((Date.now() - scoringStart) / 1_000)), 1_000);
-    return () => clearInterval(id);
-  }, [scoringStart]);
 
   function liveRemaining(ts: number) {
     const secs = ts - now;
@@ -398,26 +377,6 @@ export function Home({ onNavigate }: Props) {
             </div>
           )}
 
-          {/* AI progress bar */}
-          {status === 'scoring' && (
-            <div className="bg-polkadot-card border border-polkadot-pink/15 rounded-2xl px-4 py-3 space-y-2">
-              <div className="flex items-center justify-between">
-                <span className="text-[10px] font-semibold text-polkadot-pink animate-pulse">🤖 Mistral AI analysing…</span>
-                <span className="text-[9px] font-mono text-gray-600">{elapsed}s</span>
-              </div>
-              <div className="h-1 bg-black/40 rounded-full overflow-hidden border border-white/5">
-                <div className="h-full rounded-full bg-polkadot-pink transition-all duration-1000"
-                  style={{ width: `${Math.min(95, (elapsed / 60) * 100)}%` }}/>
-              </div>
-              <div className="text-[9px] text-gray-700">
-                {elapsed < 5  ? 'Fetching chain data…'
-                : elapsed < 20 ? 'Scoring in progress…'
-                : elapsed < 45 ? 'AI is thorough, almost done…'
-                :                'Finalising score…'}
-              </div>
-            </div>
-          )}
-
           {/* MetaMask prompt banners */}
           {status === 'waiting' && (
             <div className="bg-amber-500/5 border border-amber-500/20 rounded-xl px-4 py-3 space-y-1">
@@ -475,13 +434,13 @@ export function Home({ onNavigate }: Props) {
         <div className="bg-polkadot-card border border-orange-500/20 rounded-2xl p-6 text-center space-y-4">
           <div className="text-3xl">⏳</div>
           <div>
-            <div className="text-sm font-bold text-white">Score Already Requested</div>
-            <div className="text-[10px] text-gray-600 mt-0.5">Wait for cooldown before requesting again.</div>
+            <div className="text-sm font-bold text-white">Too Many Attempts</div>
+            <div className="text-[10px] text-gray-600 mt-0.5">Please wait before requesting another score.</div>
           </div>
           <div className="bg-orange-500/5 border border-orange-500/20 rounded-xl px-5 py-3 inline-block">
             <div className="text-[8px] font-bold uppercase tracking-widest text-orange-500 mb-0.5">Try again in</div>
             <div className="font-mono font-black text-orange-300 text-3xl tracking-tight">
-              {rateLimitDisplaySec !== null && rateLimitDisplaySec > 0 ? formatWait(rateLimitDisplaySec) : 'now'}
+              {rateLimitSec !== null && rateLimitSec > 0 ? formatWait(rateLimitSec) : 'now'}
             </div>
           </div>
           <div>

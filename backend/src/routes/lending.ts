@@ -1,12 +1,10 @@
 import { Router, Request, Response } from 'express';
-import { ethers }                    from 'ethers';
+import { ethers } from 'ethers';
 
 export const lendingRouter = Router();
 
-const RPC_URL  = 'https://services.polkadothub-rpc.com/testnet';
+const RPC_URL = 'https://services.polkadothub-rpc.com/testnet';
 const CHAIN_ID = 420420417;
-
-// ── ABIs ─────────────────────────────────────────────────────────────────────
 
 const SCORE_NFT_ABI = [
   'function getScore(address wallet) external view returns (uint16 score, uint64 issuedAt, uint64 expiresAt, bytes32 dataHash, bool isValid, bool exists)',
@@ -23,8 +21,6 @@ const LENDING_POOL_ABI = [
   'function MIN_BORROW() external view returns (uint256)',
 ];
 
-// ── Shared provider (created once per request batch) ─────────────────────────
-
 function getProvider() {
   return new ethers.JsonRpcProvider(RPC_URL, { chainId: CHAIN_ID, name: 'polkadot-testnet' });
 }
@@ -40,8 +36,6 @@ function getScoreContract(provider: ethers.JsonRpcProvider) {
   if (!addr) throw new Error('SCORE_NFT_PROXY not set in .env');
   return new ethers.Contract(addr, SCORE_NFT_ABI, provider);
 }
-
-// ── Tier helpers (pure, no network call) ─────────────────────────────────────
 
 interface TierInfo {
   tier:          'excellent' | 'good' | 'fair' | 'denied';
@@ -64,11 +58,6 @@ function fmt18(wei: bigint, decimals = 6): string {
   return parseFloat(ethers.formatEther(wei)).toFixed(decimals);
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// GET /lending/pool
-//
-// Returns pool-level stats (liquidity, utilisation, contract address).
-// ─────────────────────────────────────────────────────────────────────────────
 lendingRouter.get('/pool', async (_req: Request, res: Response) => {
   try {
     const provider  = getProvider();
@@ -110,11 +99,6 @@ lendingRouter.get('/pool', async (_req: Request, res: Response) => {
   }
 });
 
-// ─────────────────────────────────────────────────────────────────────────────
-// GET /lending/position/:address
-//
-// Returns a wallet's on-chain lending position plus their score tier.
-// ─────────────────────────────────────────────────────────────────────────────
 lendingRouter.get('/position/:address', async (req: Request, res: Response) => {
   const raw = req.params.address;
   if (!ethers.isAddress(raw)) {
@@ -140,20 +124,18 @@ lendingRouter.get('/position/:address', async (req: Request, res: Response) => {
     const scoreNum   = Number(score);
     const tierInfo   = tierFromScore(scoreNum);
     const hfNum      = healthFactor === BigInt('0x' + 'f'.repeat(64))
-      ? null  // max uint256 = no debt
+      ? null
       : parseFloat(ethers.formatEther(healthFactor as bigint));
 
     res.json({
       success:       true,
       address,
-      // Score
       hasScore:      Boolean(exists),
       score:         exists ? scoreNum : null,
-      scoreValid:    Boolean(isValid),   // keep for backwards compat
+      scoreValid:    Boolean(isValid),
       isValid:       Boolean(isValid),
       scoreExpires:  exists ? Number(expiresAt) : null,
       tier:          tierInfo,
-      // Position
       active:        Boolean(active),
       collateral:    fmt18(collateral as bigint),
       collateralWei: (collateral as bigint).toString(),
@@ -177,12 +159,6 @@ lendingRouter.get('/position/:address', async (req: Request, res: Response) => {
   }
 });
 
-// ─────────────────────────────────────────────────────────────────────────────
-// GET /lending/simulate/:address?amount=NUMBER
-//
-// Pure simulation — does NOT read the LendingPool contract.
-// Used to preview terms before connecting a wallet.
-// ─────────────────────────────────────────────────────────────────────────────
 lendingRouter.get('/simulate/:address', async (req: Request, res: Response) => {
   const raw = req.params.address;
   if (!ethers.isAddress(raw)) {

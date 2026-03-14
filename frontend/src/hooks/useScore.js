@@ -134,6 +134,7 @@ export function useScore() {
     const cancelPoll = useRef(null);
     const rateLimitSecRef = useRef(null); // mirror for closure access
     const onConfirmed = useCallback((txHash) => {
+        console.log('✅ [useScore] onConfirmed called with txHash:', txHash);
         const data = pendingData.current;
         if (data) {
             fetch(`/score/${data.wallet}/confirm`, {
@@ -151,11 +152,13 @@ export function useScore() {
         setStatus('done');
     }, []);
     const onPollTimeout = useCallback((msg) => {
+        console.warn('⚠️ [useScore] poll timeout:', msg);
         cancelPoll.current = null;
         setError(msg);
         setStatus('error');
     }, []);
     const beginConfirming = useCallback((txHash) => {
+        console.log('⏳ [useScore] beginConfirming for txHash:', txHash);
         if (cancelPoll.current)
             cancelPoll.current();
         setStatus('confirming');
@@ -164,6 +167,7 @@ export function useScore() {
     useEffect(() => () => { if (cancelPoll.current)
         cancelPoll.current(); }, []);
     const reset = useCallback(() => {
+        console.log('🔄 [useScore] reset called');
         if (cancelPoll.current) {
             cancelPoll.current();
             cancelPoll.current = null;
@@ -199,6 +203,7 @@ export function useScore() {
         return () => clearInterval(id);
     }, [rateLimitSec]);
     const doMint = useCallback(async (data, walletAddr, proxyAddress) => {
+        console.log('🚀 [useScore] doMint starting', { walletAddr, proxyAddress });
         if (chainId !== PAS_TESTNET.id) {
             try {
                 await switchChainAsync({ chainId: PAS_TESTNET.id });
@@ -242,6 +247,7 @@ export function useScore() {
             }
             throw simErr;
         }
+        console.log('📤 [useScore] calling writeContractAsync');
         const txHash = await writeContractAsync({
             address: proxyAddress,
             abi: MINT_SCORE_ABI,
@@ -249,14 +255,19 @@ export function useScore() {
             args: [data.wallet, data.score, data.dataHash, BigInt(data.deadline), data.signature],
             gas: 300000n,
         });
+        console.log('✅ [useScore] writeContractAsync returned txHash:', txHash);
         pendingData.current = data;
         beginConfirming(txHash);
     }, [writeContractAsync, beginConfirming, chainId, switchChainAsync]);
     const retryMint = useCallback(async () => {
+        console.log('🔁 [useScore] retryMint called');
         const data = pendingData.current;
-        if (!data)
+        if (!data) {
+            console.warn('⚠️ [useScore] retryMint called but no pending data');
             return;
+        }
         if (data.deadline <= Math.floor(Date.now() / 1_000)) {
+            console.warn('⚠️ [useScore] retryMint: payload expired');
             pendingData.current = null;
             setStatus('idle');
             setError(null);
@@ -268,15 +279,30 @@ export function useScore() {
             await doMint(data, address ?? data.wallet, proxyAddress);
         }
         catch (err) {
-            setError(parseRevertMessage(err));
+            console.error('❌ [useScore] retryMint error:', err);
+            const errorMsg = parseRevertMessage(err);
+            // If the signature is permanently invalid (nonce used), clear the cached payload
+            if (errorMsg.includes('Signature verification failed') ||
+                (err instanceof Error && err.message.includes('InvalidSignature'))) {
+                console.log('🧹 [useScore] clearing invalid cached payload');
+                pendingData.current = null;
+                try {
+                    sessionStorage.removeItem(`vs_payload_${data.wallet.toLowerCase()}`);
+                }
+                catch { }
+            }
+            setError(errorMsg);
             setStatus('error');
         }
     }, [address, doMint]);
     const requestScore = useCallback(async (walletAddress) => {
+        console.log('📝 [useScore] requestScore called for', walletAddress);
         // Guard: don't restart if still in rate-limit cooldown
         // Use ref (not state) to avoid stale closure reads
-        if (rateLimitSecRef.current !== null && rateLimitSecRef.current > 0)
+        if (rateLimitSecRef.current !== null && rateLimitSecRef.current > 0) {
+            console.log('⏳ [useScore] rate limit active, ignoring request');
             return;
+        }
         setStatus('reading');
         setError(null);
         setPayload(null);
@@ -290,6 +316,7 @@ export function useScore() {
         }
         try {
             setStatus('scoring');
+            console.log('🌐 [useScore] POST to /score');
             const res = await fetch(`/score/${walletAddress}`, {
                 method: 'POST',
                 signal: AbortSignal.timeout(90_000),
@@ -297,11 +324,15 @@ export function useScore() {
             const json = await res.json();
             if (res.status === 429) {
                 const secs = json.waitSec ?? 60;
+                console.log('⏳ [useScore] rate limited, waitSec:', secs);
+                // ALWAYS set the rate limit timer, even if we have a cached payload
+                setRateLimitSec(secs);
                 try {
                     const raw = sessionStorage.getItem(`vs_payload_${walletAddress.toLowerCase()}`);
                     if (raw) {
                         const cached = JSON.parse(raw);
                         if (cached.deadline > Math.floor(Date.now() / 1_000) + 30) {
+                            console.log('💾 [useScore] found valid cached payload, setting retry_available');
                             pendingData.current = cached;
                             setPayload(cached);
                             setError('retry_available');
@@ -311,12 +342,12 @@ export function useScore() {
                     }
                 }
                 catch { /**/ }
-                setRateLimitSec(secs);
                 setError(`rate_limited:${secs}`);
                 setStatus('error');
                 return;
             }
             if (res.status === 400 && json.code === 'SCORE_STILL_VALID') {
+                console.log('⏳ [useScore] cooldown active from contract');
                 setCooldownTs(json.refreshAvailableAt ?? null);
                 setStatus('cooldown');
                 return;
@@ -342,6 +373,7 @@ export function useScore() {
                 throw new Error(msg);
             }
             const data = json.data;
+            console.log('✅ [useScore] score generated, payload:', data);
             pendingData.current = data;
             setPayload(data);
             try {
@@ -349,6 +381,7 @@ export function useScore() {
             }
             catch { /**/ }
             const canPayGas = await checkSufficientPAS(walletAddress);
+            console.log('💰 [useScore] canPayGas:', canPayGas);
             if (!canPayGas) {
                 setStatus('relay_auth');
                 let userAuthSig;
@@ -362,6 +395,7 @@ export function useScore() {
                     throw err;
                 }
                 setStatus('relay_submitting');
+                console.log('🌐 [useScore] POST to /relay-mint');
                 const relayRes = await fetch(`/score/${walletAddress}/relay-mint`, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
@@ -372,6 +406,7 @@ export function useScore() {
                 if (!relayRes.ok || !relayJson.success)
                     throw new Error(relayJson.error ?? 'Relay mint failed. Please try again.');
                 const txHash = relayJson.txHash;
+                console.log('✅ [useScore] relay txHash:', txHash);
                 pendingData.current = { ...data, relayed: true };
                 beginConfirming(txHash);
                 return;
@@ -379,6 +414,7 @@ export function useScore() {
             await doMint(data, walletAddress, proxyAddress);
         }
         catch (err) {
+            console.error('❌ [useScore] requestScore error:', err);
             setError(parseRevertMessage(err));
             setStatus('error');
         }

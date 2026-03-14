@@ -1,13 +1,13 @@
 import { Router, Request, Response } from 'express';
-import { ethers }                    from 'ethers';
-import { readWalletData }            from '../chain/papiReader.js';
-import { scoreWallet }               from '../scoring/mistralScorer.js';
-import { buildSignedPayload }        from '../scoring/signer.js';
+import { ethers } from 'ethers';
+import { readWalletData } from '../chain/papiReader.js';
+import { scoreWallet } from '../scoring/mistralScorer.js';
+import { buildSignedPayload } from '../scoring/signer.js';
 import { saveScore, getHistory, getLeaderboard, getTotalUniqueWallets } from '../db/database.js';
 
 export const scoreRouter = Router();
 
-const RPC_URL  = 'https://services.polkadothub-rpc.com/testnet';
+const RPC_URL = 'https://services.polkadothub-rpc.com/testnet';
 const CHAIN_ID = 420420417;
 
 const SCORE_NFT_ABI = [
@@ -17,34 +17,33 @@ const SCORE_NFT_ABI = [
   'function recordBreakdown(address wallet, uint8[6] calldata bd) external',
 ];
 
-// ── Rate limit: 1 request per address per 60 MINUTES ─────────────────────────
-const RATE_LIMIT_MS = 60 * 60 * 1_000; // 60 minutes
-const rateLimitMap  = new Map<string, number>();
+// Rate limiting – sliding window: max 3 requests per hour per address
+const RATE_LIMIT_WINDOW_MS = 60 * 60 * 1000; // 1 hour
+const MAX_REQUESTS_PER_WINDOW = 3;
+const requestMap = new Map<string, number[]>(); // address -> array of timestamps
 
-// ── V3: record category breakdown on-chain after every mint ──────────────────
 async function recordBreakdownOnChain(
   wallet:    string,
   breakdown: Record<string, number>,
 ): Promise<void> {
-  const privateKey   = process.env.ISSUER_PRIVATE_KEY;
+  const privateKey = process.env.ISSUER_PRIVATE_KEY;
   const proxyAddress = process.env.SCORE_NFT_PROXY;
   if (!privateKey || !proxyAddress) {
     console.warn('[v3] ISSUER_PRIVATE_KEY or SCORE_NFT_PROXY not set — skipping recordBreakdown');
     return;
   }
 
-  const provider     = new ethers.JsonRpcProvider(RPC_URL, { chainId: CHAIN_ID, name: 'polkadot-testnet' });
+  const provider = new ethers.JsonRpcProvider(RPC_URL, { chainId: CHAIN_ID, name: 'polkadot-testnet' });
   const issuerWallet = new ethers.Wallet(privateKey, provider);
-  const contract     = new ethers.Contract(proxyAddress, SCORE_NFT_ABI, issuerWallet);
+  const contract = new ethers.Contract(proxyAddress, SCORE_NFT_ABI, issuerWallet);
 
-  // Slot order must match contract: [txActivity, accountAge, nativeBalance, usdtHolding, usdcHolding, complexity]
   const bd: [number, number, number, number, number, number] = [
     Math.min(255, Math.round(breakdown.transactionActivity ?? 0)),
-    Math.min(255, Math.round(breakdown.accountAge          ?? 0)),
-    Math.min(255, Math.round(breakdown.nativeBalance       ?? 0)),
-    Math.min(255, Math.round(breakdown.usdtHolding         ?? 0)),
-    Math.min(255, Math.round(breakdown.usdcHolding         ?? 0)),
-    Math.min(255, Math.round(breakdown.accountComplexity   ?? 0)),
+    Math.min(255, Math.round(breakdown.accountAge ?? 0)),
+    Math.min(255, Math.round(breakdown.nativeBalance ?? 0)),
+    Math.min(255, Math.round(breakdown.usdtHolding ?? 0)),
+    Math.min(255, Math.round(breakdown.usdcHolding ?? 0)),
+    Math.min(255, Math.round(breakdown.accountComplexity ?? 0)),
   ];
 
   console.log(`[v3] Recording breakdown on-chain for ${wallet}: [${bd.join(', ')}]`);
@@ -53,14 +52,9 @@ async function recordBreakdownOnChain(
   console.log(`[v3] ✅ Breakdown recorded — tx: ${tx.hash}`);
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-
-// ── GET /score/leaderboard ─────────────────────────────────────────────────
-// Returns top 10 wallets by highest score + aggregate stats.
-// Public endpoint — no auth required.
 scoreRouter.get('/leaderboard', (_req: Request, res: Response) => {
   try {
-    const entries      = getLeaderboard(10);
+    const entries = getLeaderboard(10);
     const totalWallets = getTotalUniqueWallets();
     res.json({ success: true, entries, totalWallets });
   } catch (err: unknown) {
@@ -69,8 +63,6 @@ scoreRouter.get('/leaderboard', (_req: Request, res: Response) => {
   }
 });
 
-// POST /score/:address
-// ─────────────────────────────────────────────────────────────────────────────
 scoreRouter.post('/:address', async (req: Request, res: Response) => {
   const raw = req.params.address;
 
@@ -81,14 +73,12 @@ scoreRouter.post('/:address', async (req: Request, res: Response) => {
 
   const address = raw.toLowerCase();
 
-  // ── Step 0: Contract pre-check — free, instant, no AI cost ─────────────────
-  // Check score validity and cooldown BEFORE touching PAPI or Mistral.
-  // This avoids burning API credits when the wallet doesn't need rescoring.
+  // --- Pre‑check on‑chain for a still‑valid score (does not consume a rate‑limit slot) ---
   try {
     const proxyAddress = process.env.SCORE_NFT_PROXY;
     if (proxyAddress) {
-      const provider  = new ethers.JsonRpcProvider(RPC_URL, { chainId: CHAIN_ID, name: 'polkadot-testnet' });
-      const contract  = new ethers.Contract(proxyAddress, SCORE_NFT_ABI, provider);
+      const provider = new ethers.JsonRpcProvider(RPC_URL, { chainId: CHAIN_ID, name: 'polkadot-testnet' });
+      const contract = new ethers.Contract(proxyAddress, SCORE_NFT_ABI, provider);
 
       const [scoreData, refreshAt] = await Promise.all([
         contract.getScore(address),
@@ -97,21 +87,20 @@ scoreRouter.post('/:address', async (req: Request, res: Response) => {
 
       const [score, , expiresAt, , isValid, exists] = scoreData;
       const refreshAvailable = Number(refreshAt);
-      const nowSec           = Math.floor(Date.now() / 1_000);
+      const nowSec = Math.floor(Date.now() / 1_000);
 
-      // Score exists, is still valid, AND cooldown has NOT passed yet → deny
       if (exists && isValid && refreshAvailable > nowSec) {
         const cooldownSec = refreshAvailable - nowSec;
         const cooldownMin = Math.ceil(cooldownSec / 60);
-        const expDate     = new Date(Number(expiresAt) * 1_000).toLocaleDateString('en-GB', {
+        const expDate = new Date(Number(expiresAt) * 1_000).toLocaleDateString('en-GB', {
           day: '2-digit', month: 'short', year: 'numeric',
         });
         res.status(400).json({
-          success:          false,
-          code:             'SCORE_STILL_VALID',
-          error:            `Your VeraScore (${Number(score)}) is still valid until ${expDate}. You can refresh in ${cooldownMin} minute${cooldownMin !== 1 ? 's' : ''}.`,
-          score:            Number(score),
-          expiresAt:        Number(expiresAt),
+          success: false,
+          code: 'SCORE_STILL_VALID',
+          error: `Your VeraScore (${Number(score)}) is still valid until ${expDate}. You can refresh in ${cooldownMin} minute${cooldownMin !== 1 ? 's' : ''}.`,
+          score: Number(score),
+          expiresAt: Number(expiresAt),
           refreshAvailableAt: refreshAvailable,
           cooldownSec,
         });
@@ -119,25 +108,30 @@ scoreRouter.post('/:address', async (req: Request, res: Response) => {
       }
     }
   } catch (preErr: unknown) {
-    // Non-fatal — if the pre-check fails (RPC hiccup), continue with scoring
     const msg = preErr instanceof Error ? preErr.message : String(preErr);
-    console.warn(`[score] ⚠️  Pre-check skipped (${msg}) — continuing with full score`);
+    console.warn(`[score] ⚠️  Pre‑check skipped (${msg}) — continuing with full score`);
   }
 
-  // ── Rate limit ────────────────────────────────────────────────────────────
-  const last = rateLimitMap.get(address);
-  const now  = Date.now();
-  if (last && now - last < RATE_LIMIT_MS) {
-    const waitMin = Math.ceil((RATE_LIMIT_MS - (now - last)) / 60_000);
-    const waitSec = Math.ceil((RATE_LIMIT_MS - (now - last)) / 1_000);
-    res.status(429).json({
+  // --- Rate limit check (sliding window) ---
+  const now = Date.now();
+  let timestamps = requestMap.get(address) || [];
+  // Keep only timestamps within the window
+  timestamps = timestamps.filter(ts => now - ts < RATE_LIMIT_WINDOW_MS);
+
+  if (timestamps.length >= MAX_REQUESTS_PER_WINDOW) {
+    const oldest = timestamps[0];
+    const waitMs = RATE_LIMIT_WINDOW_MS - (now - oldest);
+    const waitSec = Math.ceil(waitMs / 1000);
+    return res.status(429).json({
       success: false,
-      error:   `Rate limited. Please wait ${waitMin} minute${waitMin !== 1 ? 's' : ''} before requesting again.`,
+      error: `Too many requests. Please wait ${waitSec} seconds before trying again.`,
       waitSec,
     });
-    return;
   }
-  rateLimitMap.set(address, now);
+
+  // Add current timestamp (will be removed if the request fails)
+  timestamps.push(now);
+  requestMap.set(address, timestamps);
 
   try {
     console.log(`[score] Stage 1: Reading chain data for ${address}...`);
@@ -152,22 +146,26 @@ scoreRouter.post('/:address', async (req: Request, res: Response) => {
     const payload = await buildSignedPayload(address, scoreResult, chainData);
     console.log(`[score] Stage 3 done. Nonce: ${payload.nonce}, Deadline: ${payload.deadline}`);
 
+    // Success – keep the timestamp
     res.json({ success: true, data: payload });
 
   } catch (err: unknown) {
     const msg = err instanceof Error ? err.message : 'Unknown error';
     console.error(`[score] ❌ Error for ${address}:`, err);
-    rateLimitMap.delete(address); // allow immediate retry on error
+
+    // Remove the timestamp we added (failed attempt does not count)
+    const updatedTimestamps = requestMap.get(address) || [];
+    const filtered = updatedTimestamps.filter(ts => ts !== now && now - ts < RATE_LIMIT_WINDOW_MS);
+    if (filtered.length === 0) {
+      requestMap.delete(address);
+    } else {
+      requestMap.set(address, filtered);
+    }
+
     res.status(500).json({ success: false, error: msg });
   }
 });
 
-// ─────────────────────────────────────────────────────────────────────────────
-
-
-
-// POST /score/:address/confirm
-// ─────────────────────────────────────────────────────────────────────────────
 scoreRouter.post('/:address/confirm', async (req: Request, res: Response) => {
   const raw = req.params.address;
 
@@ -188,14 +186,12 @@ scoreRouter.post('/:address/confirm', async (req: Request, res: Response) => {
   }
 
   try {
-    // 1. Save to SQLite
     saveScore(raw.toLowerCase(), score, breakdown, txHash);
     console.log(`[confirm] ✅ Saved score ${score} for ${raw} — tx: ${txHash}`);
 
-    // 2. Record breakdown on-chain — fire-and-forget, never blocks response
     recordBreakdownOnChain(raw.toLowerCase(), breakdown).catch((e: unknown) => {
       const msg = e instanceof Error ? e.message : String(e);
-      console.warn(`[confirm] ⚠️  recordBreakdown failed (non-fatal): ${msg}`);
+      console.warn(`[confirm] ⚠️  recordBreakdown failed (non‑fatal): ${msg}`);
     });
 
     res.json({ success: true });
@@ -207,9 +203,6 @@ scoreRouter.post('/:address/confirm', async (req: Request, res: Response) => {
   }
 });
 
-// ─────────────────────────────────────────────────────────────────────────────
-// GET /score/:address
-// ─────────────────────────────────────────────────────────────────────────────
 scoreRouter.get('/:address', async (req: Request, res: Response) => {
   const raw = req.params.address;
 
@@ -234,7 +227,7 @@ scoreRouter.get('/:address', async (req: Request, res: Response) => {
     ]);
 
     const [score, issuedAt, expiresAt, dataHash, isValid, exists] = scoreData;
-    const history     = getHistory(address);
+    const history = getHistory(address);
     const totalScored = Number(totalScoredRaw);
 
     if (!exists) {
@@ -243,12 +236,12 @@ scoreRouter.get('/:address', async (req: Request, res: Response) => {
     }
 
     res.json({
-      success:            true,
-      hasScore:           true,
+      success: true,
+      hasScore: true,
       address,
-      score:              Number(score),
-      issuedAt:           Number(issuedAt),
-      expiresAt:          Number(expiresAt),
+      score: Number(score),
+      issuedAt: Number(issuedAt),
+      expiresAt: Number(expiresAt),
       dataHash,
       isValid,
       refreshAvailableAt: Number(refreshAt),
@@ -263,16 +256,6 @@ scoreRouter.get('/:address', async (req: Request, res: Response) => {
   }
 });
 
-// ─────────────────────────────────────────────────────────────────────────────
-
-
-
-// POST /score/:address/relay-mint
-// Gasless relay: backend calls mintScore on behalf of the user.
-// The user signs a free personal_sign auth message (zero gas) to authorize.
-// The backend (issuer wallet) submits the tx and pays PAS gas.
-// Use case: wallets with USDT but no PAS for gas.
-// ─────────────────────────────────────────────────────────────────────────────
 scoreRouter.post('/:address/relay-mint', async (req: Request, res: Response) => {
   const raw = req.params.address;
 
@@ -288,7 +271,7 @@ scoreRouter.post('/:address/relay-mint', async (req: Request, res: Response) => 
     dataHash:    string;
     deadline:    number;
     signature:   string;
-    userAuthSig: string; // personal_sign from the user authorizing this relay
+    userAuthSig: string;
   };
 
   if (!score || !dataHash || !deadline || !signature || !userAuthSig) {
@@ -297,11 +280,8 @@ scoreRouter.post('/:address/relay-mint', async (req: Request, res: Response) => 
   }
 
   try {
-    // ── Verify the user actually authorized this relay ──────────────────────
-    // The auth message must be signed by the wallet address being scored.
-    // This prevents anyone from triggering a relay on behalf of arbitrary addresses.
     const authMessage = `VeraScore relay mint authorized\nWallet: ${address}\nDeadline: ${deadline}`;
-    const recovered   = ethers.verifyMessage(authMessage, userAuthSig).toLowerCase();
+    const recovered = ethers.verifyMessage(authMessage, userAuthSig).toLowerCase();
 
     if (recovered !== address) {
       console.warn(`[relay] Auth sig mismatch — expected ${address}, got ${recovered}`);
@@ -311,8 +291,7 @@ scoreRouter.post('/:address/relay-mint', async (req: Request, res: Response) => 
 
     console.log(`[relay] ✅ Auth verified for ${address}`);
 
-    // ── Call mintScore using the issuer wallet (backend pays gas) ───────────
-    const privateKey   = process.env.ISSUER_PRIVATE_KEY;
+    const privateKey = process.env.ISSUER_PRIVATE_KEY;
     const proxyAddress = process.env.SCORE_NFT_PROXY;
 
     if (!privateKey || !proxyAddress) {
@@ -320,7 +299,7 @@ scoreRouter.post('/:address/relay-mint', async (req: Request, res: Response) => 
       return;
     }
 
-    const provider     = new ethers.JsonRpcProvider(RPC_URL, { chainId: CHAIN_ID, name: 'polkadot-testnet' });
+    const provider = new ethers.JsonRpcProvider(RPC_URL, { chainId: CHAIN_ID, name: 'polkadot-testnet' });
     const issuerWallet = new ethers.Wallet(privateKey, provider);
 
     const MINT_ABI = [
@@ -335,8 +314,6 @@ scoreRouter.post('/:address/relay-mint', async (req: Request, res: Response) => 
     const receipt = await tx.wait();
     console.log(`[relay] ✅ Confirmed in block ${receipt.blockNumber} — tx: ${tx.hash}`);
 
-    // ── Save to history ──────────────────────────────────────────────────────
-    // breakdown not available here — will be empty. Frontend can call /confirm after.
     saveScore(address, score, {}, tx.hash);
 
     res.json({ success: true, txHash: tx.hash });
@@ -348,9 +325,6 @@ scoreRouter.post('/:address/relay-mint', async (req: Request, res: Response) => 
   }
 });
 
-// ─────────────────────────────────────────────────────────────────────────────
-// GET /score/history/:address
-// ─────────────────────────────────────────────────────────────────────────────
 scoreRouter.get('/history/:address', async (req: Request, res: Response) => {
   const raw = req.params.address;
 

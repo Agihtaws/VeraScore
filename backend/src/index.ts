@@ -88,16 +88,12 @@ app.use((err: unknown, _req: Request, res: Response, _next: NextFunction) => {
 // ── Start ─────────────────────────────────────────────────────────────────────
 app.listen(PORT, () => {
   console.log('');
-  console.log('┌──────────────────────────────────────────────────────┐');
-  console.log('│  VeraScore Backend  v5.1.0  (Demo Ready)            │');
-  console.log('├──────────────────────────────────────────────────────┤');
-  console.log(`│  Port:     ${PORT.toString().padEnd(42)}│`);
-  console.log(`│  Network:  PAS TestNet (420420417)               │`);
-  console.log(`│  Proxy:    ${(process.env.SCORE_NFT_PROXY?.slice(0, 10) + '...' + process.env.SCORE_NFT_PROXY?.slice(-10)).padEnd(42)}│`);
-  console.log(`│  Frontend: ${FRONTEND_URL.padEnd(42)}│`);
-  console.log('├──────────────────────────────────────────────────────┤');
-  console.log('│  Routes:   /score /verify /lending /fee-info        │');
-  console.log('│            /balances /transfer /health               │');
-  console.log('└──────────────────────────────────────────────────────┘');
+  console.log('VeraScore Backend v5.1.0 (Demo Ready)');
+  console.log('----------------------------------------');
+  console.log(`Port:      ${PORT}`);
+  console.log(`Network:   PAS TestNet (420420417)`);
+  console.log(`Proxy:     ${process.env.SCORE_NFT_PROXY?.slice(0, 10)}...${process.env.SCORE_NFT_PROXY?.slice(-10)}`);
+  console.log(`Frontend:  ${FRONTEND_URL}`);
+  console.log(`Routes:    /score /verify /lending /fee-info /balances /transfer /health`);
   console.log('');
 });

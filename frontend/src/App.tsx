@@ -26,17 +26,14 @@ export default function App() {
   const chainId                  = useChainId();
   const { switchChain }          = useSwitchChain();
 
-  // ── PAS balance — refetchInterval polls every 6s via React Query ────────────
-  // NOTE: do NOT use watch:true — with HTTP transport + custom chain it can
-  //       silently fail. query.refetchInterval is reliable for all networks.
   const { data: balData, refetch: refetchBal } = useBalance({
     address,
     chainId: pasTestnet.id,
     query: {
-      enabled:         !!address,  // don't fire until wallet is connected
-      refetchInterval: 6_000,      // poll every 6s
-      staleTime:       0,          // always treat cached value as stale → refetch immediately
-      retry:           3,          // retry up to 3 times on RPC error
+      enabled:         !!address,
+      refetchInterval: 6_000,
+      staleTime:       0,
+      retry:           3,
     },
   });
 
@@ -48,13 +45,10 @@ export default function App() {
     ? balNum.toLocaleString('en-US', { minimumFractionDigits: 4, maximumFractionDigits: 4 }) + ' PAS'
     : '—';
 
-  // ── Block number — query.refetchInterval works reliably on HTTP transports ───
-  // watch:true uses watchBlockNumber (needs WebSocket/long-poll) and silently
-  // fails for custom chains on plain HTTP. Use refetchInterval instead.
   const { data: blockNumber } = useBlockNumber({
     chainId: pasTestnet.id,
     query: {
-      refetchInterval: 4_000,   // poll every 4s
+      refetchInterval: 4_000,
       staleTime:       0,
       retry:           3,
     },
@@ -68,7 +62,6 @@ export default function App() {
   const walletRef  = useRef<HTMLDivElement>(null);
   const sidebarRef = useRef<HTMLDivElement>(null);
 
-  // Close dropdowns on outside click
   useEffect(() => {
     function onOut(e: MouseEvent) {
       if (walletRef.current  && !walletRef.current.contains(e.target  as Node)) setWalletOpen(false);
@@ -97,12 +90,10 @@ export default function App() {
   return (
     <div className="min-h-screen bg-polkadot-dark text-white flex font-sans">
 
-      {/* ── Desktop sidebar ───────────────────────────────────────────────── */}
       <aside className="hidden lg:flex flex-col w-64 shrink-0 border-r border-polkadot-border bg-polkadot-card fixed top-0 left-0 h-full z-30 shadow-2xl">
         <Sidebar page={page} onNavigate={navigate} />
       </aside>
 
-      {/* ── Mobile sidebar overlay ────────────────────────────────────────── */}
       {sidebarOpen && (
         <div className="fixed inset-0 z-40 lg:hidden">
           <div
@@ -118,14 +109,11 @@ export default function App() {
         </div>
       )}
 
-      {/* ── Main content ──────────────────────────────────────────────────── */}
       <div className="flex-1 flex flex-col min-h-screen lg:ml-64">
 
-        {/* ── Header ──────────────────────────────────────────────────────── */}
         <header className="sticky top-0 z-20 border-b border-polkadot-border bg-polkadot-dark/80 backdrop-blur-xl px-4 sm:px-8 py-4 flex items-center justify-between">
 
           <div className="flex items-center gap-4">
-            {/* Mobile hamburger */}
             <button
               onClick={() => setSidebarOpen(o => !o)}
               className="lg:hidden p-2 rounded-xl bg-white/5 border border-white/10 text-gray-400 hover:text-white transition-all"
@@ -135,7 +123,6 @@ export default function App() {
               </svg>
             </button>
 
-            {/* Current page label */}
             <div className="text-xs font-black uppercase tracking-[0.2em] text-gray-500 hidden sm:block">
               {NAV.find(n => n.id === page)?.label}
             </div>
@@ -143,7 +130,6 @@ export default function App() {
 
           <div className="flex items-center gap-3">
 
-            {/* ── Network + live block pill ──────────────────────────────── */}
             <div className="hidden md:flex items-center gap-2 text-[9px] font-black uppercase tracking-widest text-gray-500 border border-polkadot-border rounded-lg px-3 py-1.5 bg-black/20">
               <span className="relative flex h-1.5 w-1.5 shrink-0">
                 <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75" />
@@ -157,7 +143,6 @@ export default function App() {
               )}
             </div>
 
-            {/* ── Wallet button / dropdown ───────────────────────────────── */}
             {isConnected ? (
               <div ref={walletRef} className="relative">
                 <button
@@ -175,41 +160,43 @@ export default function App() {
                 </button>
 
                 {walletOpen && (
-                  <div className="absolute right-0 mt-2 w-64 bg-polkadot-card border border-polkadot-border rounded-xl shadow-2xl z-50 overflow-hidden">
-                    <div className="p-4 space-y-3">
+  <div className="absolute right-0 mt-2 w-64 bg-polkadot-card border border-polkadot-border rounded-xl shadow-2xl z-50 overflow-hidden">
+    <div className="p-4 space-y-3">
 
-                      <div>
-                        <div className="text-[9px] text-gray-600 font-black uppercase tracking-widest mb-1">Active Identity</div>
-                        <div className="font-mono text-[10px] text-white break-all bg-black/20 p-2 rounded-lg border border-white/5 leading-relaxed">
-                          {address}
-                        </div>
-                      </div>
+      <div>
+        <div className="text-[9px] text-gray-600 font-black uppercase tracking-widest mb-1 flex items-center justify-between">
+          <span>Active Identity</span>
+          <button
+            onClick={copyAddress}
+            className="text-[9px] font-black uppercase text-gray-500 hover:text-white transition-colors"
+          >
+            {copied ? '✓' : 'Copy'}
+          </button>
+        </div>
+        <div className="font-mono text-[10px] text-white break-all bg-black/20 p-2 rounded-lg border border-white/5 leading-relaxed">
+          {address}
+        </div>
+      </div>
 
-                      <div className="flex justify-between items-center border-t border-white/5 pt-3">
-                        <div>
-                          <div className="text-[9px] text-gray-600 font-black uppercase tracking-widest mb-0.5">Balance</div>
-                          <div className="font-mono text-sm font-black text-polkadot-pink">
-                            {balNum !== null ? balFull : <span className="animate-pulse text-gray-600 text-xs">Loading…</span>}
-                          </div>
-                        </div>
-                        <button
-                          onClick={copyAddress}
-                          className="text-[9px] font-black uppercase text-gray-500 hover:text-white transition-colors"
-                        >
-                          {copied ? '✓' : 'Copy'}
-                        </button>
-                      </div>
+      <div className="flex justify-between items-center border-t border-white/5 pt-3">
+        <div>
+          <div className="text-[9px] text-gray-600 font-black uppercase tracking-widest mb-0.5">Balance</div>
+          <div className="font-mono text-sm font-black text-polkadot-pink">
+            {balNum !== null ? balFull : <span className="animate-pulse text-gray-600 text-xs">Loading…</span>}
+          </div>
+        </div>
+      </div>
 
-                      <button
-                        onClick={() => { disconnect(); setWalletOpen(false); }}
-                        className="w-full px-3 py-2 rounded-lg bg-red-500/10 border border-red-500/20 text-red-400 text-[10px] font-black uppercase tracking-widest hover:bg-red-500 hover:text-white transition-all"
-                      >
-                        Disconnect
-                      </button>
+      <button
+        onClick={() => { disconnect(); setWalletOpen(false); }}
+        className="w-full px-3 py-2 rounded-lg bg-red-500/10 border border-red-500/20 text-red-400 text-[10px] font-black uppercase tracking-widest hover:bg-red-500 hover:text-white transition-all"
+      >
+        Disconnect
+      </button>
 
-                    </div>
-                  </div>
-                )}
+    </div>
+  </div>
+)}
               </div>
             ) : (
               <button
@@ -223,7 +210,6 @@ export default function App() {
           </div>
         </header>
 
-        {/* ── Wrong network banner ─────────────────────────────────────────── */}
         {isWrongNetwork && (
           <div className="bg-yellow-500 text-black px-6 py-2 text-[10px] font-black uppercase tracking-widest flex items-center justify-center gap-4">
             ⚠️ Network Mismatch — switch to Polkadot Hub TestNet
@@ -236,7 +222,6 @@ export default function App() {
           </div>
         )}
 
-        {/* ── Page content ────────────────────────────────────────────────── */}
         <main className="flex-1">
           {page === 'home'        && <Home        onNavigate={navigate} />}
           {page === 'lookup'      && <Lookup />}
@@ -248,7 +233,6 @@ export default function App() {
           {page === 'wallet'      && <CreateWallet onNavigateHome={() => navigate('home')} />}
         </main>
 
-        {/* ── Footer ──────────────────────────────────────────────────────── */}
         <footer className="border-t border-polkadot-border px-8 py-6 bg-black/20">
           <div className="max-w-7xl mx-auto flex flex-col md:flex-row items-center justify-between gap-4">
             <div className="text-[10px] font-black uppercase tracking-[0.3em] text-gray-600">

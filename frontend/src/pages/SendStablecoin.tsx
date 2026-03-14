@@ -13,13 +13,6 @@ const TOKEN_CFG = {
 
 interface SenderInfo { ss58: string; usdt: number; usdc: number; }
 
-async function fetchEvmBalances(address: string): Promise<{ usdt: number; usdc: number }> {
-  const res  = await fetch(`/balances/${address}`);
-  const json = await res.json();
-  if (!json.success) throw new Error(json.error ?? 'Failed');
-  return { usdt: Number(json.usdt ?? 0), usdc: Number(json.usdc ?? 0) };
-}
-
 export function SendStablecoin() {
   const [token,  setToken]  = useState<Token>('USDT');
   const [to,     setTo]     = useState('');
@@ -31,10 +24,6 @@ export function SendStablecoin() {
   const [sender,        setSender]        = useState<SenderInfo | null>(null);
   const [senderLoading, setSenderLoading] = useState(true);
 
-  const [checkAddr,    setCheckAddr]    = useState('');
-  const [checkBals,    setCheckBals]    = useState<{ usdt: number; usdc: number } | null>(null);
-  const [checkLoading, setCheckLoading] = useState(false);
-
   const cfg = TOKEN_CFG[token];
 
   useEffect(() => {
@@ -44,30 +33,11 @@ export function SendStablecoin() {
       .then(json => {
         if (json.success) {
           setSender({ ss58: json.ss58, usdt: json.usdt, usdc: json.usdc });
-          setCheckAddr(json.ss58);
         }
       })
       .catch(() => {})
       .finally(() => setSenderLoading(false));
   }, []);
-
-  useEffect(() => {
-    const addr = checkAddr.trim();
-    if (!addr) { setCheckBals(null); return; }
-    const isSenderAddr = sender && addr === sender.ss58;
-    if (isSenderAddr) { setCheckBals({ usdt: sender!.usdt, usdc: sender!.usdc }); return; }
-    if (!isAddress(addr)) { setCheckBals(null); return; }
-    let dead = false;
-    const load = async () => {
-      setCheckLoading(true);
-      try { const b = await fetchEvmBalances(addr); if (!dead) setCheckBals(b); }
-      catch { /* ignore */ }
-      finally { if (!dead) setCheckLoading(false); }
-    };
-    load();
-    const iv = setInterval(load, 15_000);
-    return () => { dead = true; clearInterval(iv); };
-  }, [checkAddr, sender]);
 
   const refreshSender = useCallback(() => {
     setTimeout(() => {
@@ -76,12 +46,11 @@ export function SendStablecoin() {
         .then(json => {
           if (json.success) {
             setSender({ ss58: json.ss58, usdt: json.usdt, usdc: json.usdc });
-            if (checkAddr === json.ss58) setCheckBals({ usdt: json.usdt, usdc: json.usdc });
           }
         })
         .catch(() => {});
     }, 4_000);
-  }, [checkAddr]);
+  }, []);
 
   const senderBalance = sender ? (token === 'USDT' ? sender.usdt : sender.usdc) : 0;
   const toValid       = isAddress(to);
@@ -174,36 +143,6 @@ export function SendStablecoin() {
             <p className="text-xs font-semibold text-red-400">✗ Could not load sender — check backend</p>
           )}
         </div>
-      </div>
-
-      {/* Check any address */}
-      <div className="space-y-1.5">
-        <div className="text-[8px] font-bold uppercase tracking-widest text-gray-700">Check Any Address Balance</div>
-        <div className={`flex items-center bg-polkadot-card border rounded-xl overflow-hidden transition-colors ${
-          checkAddr && !checkAddr.startsWith('5') && !isAddress(checkAddr)
-            ? 'border-red-500/40'
-            : 'border-polkadot-border focus-within:border-polkadot-pink/40'
-        }`}>
-          <input type="text" value={checkAddr} onChange={e => setCheckAddr(e.target.value)}
-            placeholder="0x… or SS58 address"
-            className="flex-1 bg-transparent px-4 py-2.5 text-xs font-mono text-white placeholder-gray-700 outline-none" />
-          {checkLoading && (
-            <span className="w-3 h-3 border-2 border-gray-600 border-t-gray-400 rounded-full animate-spin mx-3 shrink-0" />
-          )}
-        </div>
-        {checkBals && checkAddr && (
-          <div className="flex gap-2 pt-0.5">
-            {(['USDT', 'USDC'] as Token[]).map(t => {
-              const val = t === 'USDT' ? checkBals.usdt : checkBals.usdc;
-              return (
-                <div key={t} className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border text-[9px] font-bold uppercase tracking-wide ${TOKEN_CFG[t].bg} ${TOKEN_CFG[t].border} ${TOKEN_CFG[t].color}`}>
-                  <span className={`w-1.5 h-1.5 rounded-full ${TOKEN_CFG[t].dot}`} />
-                  {val.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 4 })} {t}
-                </div>
-              );
-            })}
-          </div>
-        )}
       </div>
 
       <div className="border-t border-polkadot-border" />

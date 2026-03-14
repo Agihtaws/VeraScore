@@ -9,7 +9,7 @@ export interface ScoreRecord {
   id:        number;
   address:   string;
   score:     number;
-  breakdown: string; // JSON string
+  breakdown: string; 
   txHash:    string;
   timestamp: number;
 }
@@ -19,8 +19,6 @@ let db: Database.Database;
 export function getDb(): Database.Database {
   if (!db) {
     db = new Database(DB_PATH);
-
-    // Enable WAL mode for better concurrent read performance
     db.pragma('journal_mode = WAL');
 
     db.exec(`
@@ -85,7 +83,6 @@ export interface LeaderboardEntry {
 
 export function getLeaderboard(limit = 10): LeaderboardEntry[] {
   const db = getDb();
-  // Best score per wallet (latest entry with highest score), sorted desc
   const rows = db.prepare(`
     SELECT
       address,

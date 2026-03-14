@@ -2,7 +2,6 @@ import { ethers }               from 'ethers';
 import type { WalletChainData } from '../chain/papiReader.js';
 import type { ScoreResult }     from './mistralScorer.js';
 
-// Switch back to this RPC for signing because it supports contract calls pa!
 const RPC_URL  = 'https://services.polkadothub-rpc.com/testnet'; 
 const CHAIN_ID = 420420417;
 

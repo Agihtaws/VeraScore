@@ -1,11 +1,10 @@
 import { Router, Request, Response } from 'express';
-import { ethers }                    from 'ethers';
-import { getHistory }                from '../db/database.js';
+import { ethers } from 'ethers';
+import { getHistory } from '../db/database.js';
 
 export const verifyRouter = Router();
 
-// Switching back to this one as it seems to know your contract better
-const RPC_URL  = 'https://services.polkadothub-rpc.com/testnet'; 
+const RPC_URL = 'https://services.polkadothub-rpc.com/testnet';
 const CHAIN_ID = 420420417;
 
 const SCORE_NFT_ABI = [
@@ -27,18 +26,17 @@ verifyRouter.get('/:address', async (req: Request, res: Response) => {
 
     const provider = new ethers.JsonRpcProvider(RPC_URL, {
       chainId: CHAIN_ID,
-      name:    'polkadot-testnet',
-    }, { staticNetwork: true }); 
-    
+      name: 'polkadot-testnet',
+    }, { staticNetwork: true });
+
     const contract = new ethers.Contract(proxyAddress, SCORE_NFT_ABI, provider);
 
-    // Give it a slightly longer 5s timeout since this RPC is a bit slower
     const [scoreData, totalScoredRaw] = await Promise.race([
       Promise.all([
         contract.getScore(address),
         contract.totalScored(),
       ]),
-      new Promise<[any, any]>((_, reject) => 
+      new Promise<[any, any]>((_, reject) =>
         setTimeout(() => reject(new Error('RPC Timeout')), 5000)
       ),
     ]);
@@ -49,19 +47,19 @@ verifyRouter.get('/:address', async (req: Request, res: Response) => {
     const latestTx = history.length > 0 ? history[0].txHash : null;
 
     res.json({
-      success:      true,
-      valid:        Boolean(isValid && exists),
+      success: true,
+      valid: Boolean(isValid && exists),
       address,
-      score:        exists ? Number(score) : null,
-      issuedAt:     exists ? Number(issuedAt) : null,
-      expiresAt:    exists ? Number(expiresAt) : null,
-      txHash:       latestTx,
-      dataHash:     exists ? dataHash : null,
+      score: exists ? Number(score) : null,
+      issuedAt: exists ? Number(issuedAt) : null,
+      expiresAt: exists ? Number(expiresAt) : null,
+      txHash: latestTx,
+      dataHash: exists ? dataHash : null,
       totalScored,
-      protocol:     'VeraScore v2',
-      contract:     proxyAddress,
-      network:      'PAS TestNet',
-      chainId:      CHAIN_ID,
+      protocol: 'VeraScore v2',
+      contract: proxyAddress,
+      network: 'PAS TestNet',
+      chainId: CHAIN_ID,
     });
 
   } catch (err: any) {

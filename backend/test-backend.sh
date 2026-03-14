@@ -1,9 +1,3 @@
-#!/usr/bin/env bash
-# ═══════════════════════════════════════════════════════════════════
-#  VeraScore Backend — Full Test Suite  (Windows Git Bash compatible)
-#  Usage:  chmod +x test-backend.sh && ./test-backend.sh
-# ═══════════════════════════════════════════════════════════════════
-
 BASE="http://localhost:3001"
 WALLET_A="0x16fe7e28314162b463dE747F61F7173D8a4c9f73"
 WALLET_B="0x63eea403e3075D9e6b5eA18c28021e6FfdD04a67"

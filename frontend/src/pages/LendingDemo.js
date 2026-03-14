@@ -129,8 +129,8 @@ function HealthBar({ hf, liqThreshBps }) {
 function ActionCard({ title, accent, children }) {
     return (_jsxs("div", { className: `bg-polkadot-card border rounded-2xl overflow-hidden shadow-xl ${accent ?? 'border-polkadot-border'}`, children: [_jsx("div", { className: "px-4 py-3 border-b border-polkadot-border bg-black/20", children: _jsx("span", { className: "text-[9px] font-black uppercase tracking-widest text-gray-500", children: title }) }), _jsx("div", { className: "px-4 py-4 space-y-3", children: children })] }));
 }
-function PasInput({ value, onChange, placeholder }) {
-    return (_jsxs("div", { className: "relative", children: [_jsx("input", { type: "number", value: value, onChange: e => onChange(e.target.value), placeholder: placeholder ?? '0.00', className: "w-full bg-polkadot-dark border border-polkadot-border rounded-xl px-4 py-2.5 text-sm font-mono text-white outline-none focus:border-polkadot-pink/40 placeholder-gray-700" }), _jsx("span", { className: "absolute right-3 top-1/2 -translate-y-1/2 text-[9px] font-black text-gray-700 uppercase", children: "PAS" })] }));
+function PasInput({ value, onChange, placeholder, disabled }) {
+    return (_jsxs("div", { className: "relative", children: [_jsx("input", { type: "number", value: value, onChange: e => onChange(e.target.value), placeholder: placeholder ?? '0.00', disabled: disabled, className: "w-full bg-polkadot-dark border border-polkadot-border rounded-xl px-4 py-2.5 text-sm font-mono text-white outline-none focus:border-polkadot-pink/40 placeholder-gray-700 disabled:opacity-40 disabled:cursor-not-allowed" }), _jsx("span", { className: "absolute right-3 top-1/2 -translate-y-1/2 text-[9px] font-black text-gray-700 uppercase", children: "PAS" })] }));
 }
 // ── Main ───────────────────────────────────────────────────────────────────
 export function LendingDemo() {
@@ -147,6 +147,9 @@ export function LendingDemo() {
     const [liqLookingUp, setLiqLookingUp] = useState(false);
     const [liqStatus, setLiqStatus] = useState(null);
     const liqFetchId = useRef(0);
+    // Local validation errors for repay/withdraw
+    const [repayError, setRepayError] = useState(null);
+    const [withdrawError, setWithdrawError] = useState(null);
     const [poolStats, setPoolStats] = useState(null);
     const [simResult, setSimResult] = useState(null);
     const [simLoading, setSimLoading] = useState(false);
@@ -178,6 +181,8 @@ export function LendingDemo() {
         fetch('/lending/pool').then(r => r.json()).then(setPoolStats).catch(() => { });
         setRepayInput('');
         setWithdrawInput('');
+        setRepayError(null);
+        setWithdrawError(null);
     }, [refetchPos, refetchWithdrawable]);
     const depositAction = usePoolAction(refetchAll);
     const borrowAction = usePoolAction(refetchAll);
@@ -194,6 +199,44 @@ export function LendingDemo() {
                 .catch(() => setSimLoading(false));
         }
     }, [address]);
+    // Validate repay input
+    useEffect(() => {
+        if (!repayInput) {
+            setRepayError(null);
+            return;
+        }
+        try {
+            const amountWei = parseEther(repayInput);
+            if (amountWei > effectiveDebt) {
+                setRepayError(`Maximum repay is ${fmtPas(effectiveDebt)} PAS`);
+            }
+            else {
+                setRepayError(null);
+            }
+        }
+        catch {
+            setRepayError('Invalid amount');
+        }
+    }, [repayInput, effectiveDebt]);
+    // Validate withdraw input
+    useEffect(() => {
+        if (!withdrawInput) {
+            setWithdrawError(null);
+            return;
+        }
+        try {
+            const amountWei = parseEther(withdrawInput);
+            if (amountWei > withdrawableAmount) {
+                setWithdrawError(`Maximum withdraw is ${fmtPas(withdrawableAmount)} PAS`);
+            }
+            else {
+                setWithdrawError(null);
+            }
+        }
+        catch {
+            setWithdrawError('Invalid amount');
+        }
+    }, [withdrawInput, withdrawableAmount]);
     async function lookupLiqTarget(addr) {
         setLiqTarget(addr);
         if (addr.length !== 42) {
@@ -232,6 +275,22 @@ export function LendingDemo() {
                 setLiqLookingUp(false);
         }
     }
+    const handleRepay = useCallback(() => {
+        if (repayError)
+            return;
+        repayAction.execute({
+            address: LENDING_POOL, abi: POOL_ABI, functionName: 'repay',
+            value: parseEther(repayInput || '0'), gas: GAS.repay,
+        });
+    }, [repayAction, repayInput, repayError]);
+    const handleWithdraw = useCallback(() => {
+        if (withdrawError)
+            return;
+        withdrawAction.execute({
+            address: LENDING_POOL, abi: POOL_ABI, functionName: 'withdraw',
+            args: [parseEther(withdrawInput || '0')], gas: GAS.withdraw,
+        });
+    }, [withdrawAction, withdrawInput, withdrawError]);
     if (!LENDING_POOL)
         return (_jsx("div", { className: "p-20 text-center text-xs uppercase font-black text-gray-600 tracking-widest italic", children: "Lending Pool Not Deployed" }));
     return (_jsxs("div", { className: "max-w-2xl mx-auto px-4 sm:px-6 py-6 space-y-5", children: [_jsxs("div", { children: [_jsxs("h1", { className: "text-xl font-black tracking-tight text-white", children: ["VeraScore ", _jsx("span", { className: "text-polkadot-pink", children: "Lending" })] }), _jsx("p", { className: "text-[10px] text-gray-600 mt-0.5 font-medium", children: "Credit-gated liquidity \u00B7 Paseo Hub native" })] }), isWrongNetwork && (_jsxs("div", { className: "bg-yellow-500/5 border border-yellow-500/20 rounded-xl px-4 py-3 flex items-center justify-between", children: [_jsx("span", { className: "text-xs text-yellow-400 font-semibold", children: "\u26A0 Switch to Paseo Hub" }), _jsx("button", { onClick: () => switchChain({ chainId: pasTestnet.id }), className: "text-xs bg-yellow-600 hover:bg-yellow-500 text-white px-3 py-1.5 rounded-lg font-bold transition-colors", children: "Switch" })] })), _jsx("div", { className: "grid grid-cols-2 sm:grid-cols-4 gap-2", children: TIERS.map(t => (_jsxs("div", { className: `${t.bg} border ${t.border} rounded-2xl px-3 py-3 space-y-1`, children: [_jsx("div", { className: `text-[8px] font-black uppercase tracking-widest ${t.color}`, children: t.label }), _jsxs("div", { className: "text-lg font-black text-white tracking-tight", children: [t.ltv, " ", _jsx("span", { className: "text-[8px] text-gray-700 uppercase", children: "LTV" })] }), _jsxs("div", { className: "flex justify-between text-[8px] font-bold text-gray-700 uppercase pt-1.5 border-t border-white/5", children: [_jsxs("span", { children: ["APR: ", t.apr] }), _jsx("span", { className: "font-mono", children: t.range })] })] }, t.label))) }), poolStats?.success && (_jsxs("div", { className: "bg-polkadot-card border border-polkadot-border rounded-2xl overflow-hidden", children: [_jsx("div", { className: "px-4 py-3 border-b border-polkadot-border bg-black/20", children: _jsx("span", { className: "text-[9px] font-black uppercase tracking-widest text-gray-500", children: "Pool Stats" }) }), _jsx("div", { className: "grid grid-cols-2 sm:grid-cols-4 gap-px bg-polkadot-border", children: [
@@ -262,13 +321,7 @@ export function LendingDemo() {
                                 }), disabled: !isConnected || depositAction.status === 'signing' || depositAction.status === 'mining', className: "w-full py-3 bg-polkadot-pink hover:bg-pink-600 text-white rounded-xl font-black text-xs uppercase tracking-widest transition-all disabled:opacity-40 disabled:cursor-not-allowed shadow-[0_0_10px_rgba(230,0,122,0.15)]", children: depositAction.status === 'mining' ? 'Mining…' : depositAction.status === 'signing' ? 'Confirm…' : 'Deposit' }), _jsx(ActionFeedback, { status: depositAction.status, txError: depositAction.txError })] }), _jsxs(ActionCard, { title: "2. Draw Liquidity", children: [_jsx(PasInput, { value: borrowInput, onChange: setBorrowInput }), _jsx("button", { onClick: () => borrowAction.execute({
                                     address: LENDING_POOL, abi: POOL_ABI, functionName: 'borrow',
                                     args: [parseEther(borrowInput || '0')], gas: GAS.borrow,
-                                }), disabled: !isConnected || !simResult?.eligible || borrowAction.status === 'signing' || borrowAction.status === 'mining', className: "w-full py-3 bg-white/5 border border-white/10 text-white rounded-xl font-black text-xs uppercase tracking-widest hover:bg-white/10 transition-all disabled:opacity-40 disabled:cursor-not-allowed", children: borrowAction.status === 'mining' ? 'Mining…' : borrowAction.status === 'signing' ? 'Confirm…' : 'Borrow' }), _jsx(ActionFeedback, { status: borrowAction.status, txError: borrowAction.txError })] }), _jsxs(ActionCard, { title: "3. Repay Debt", children: [effectiveDebt > 0n && (_jsxs("button", { onClick: () => setRepayInput(formatEther(effectiveDebt + effectiveDebt / 200n)), className: "text-[9px] font-bold text-polkadot-pink hover:opacity-70 uppercase tracking-widest", children: ["Max: ", fmtPas(effectiveDebt), " PAS"] })), _jsx(PasInput, { value: repayInput, onChange: setRepayInput, placeholder: effectiveDebt > 0n ? fmtPas(effectiveDebt) : '0.00' }), _jsx("button", { onClick: () => repayAction.execute({
-                                    address: LENDING_POOL, abi: POOL_ABI, functionName: 'repay',
-                                    value: parseEther(repayInput || '0'), gas: GAS.repay,
-                                }), disabled: !isConnected || effectiveDebt === 0n || !repayInput || repayAction.status === 'signing' || repayAction.status === 'mining', className: "w-full py-3 bg-blue-500/10 border border-blue-500/20 text-blue-300 rounded-xl font-black text-xs uppercase tracking-widest hover:bg-blue-500/20 transition-all disabled:opacity-40 disabled:cursor-not-allowed", children: repayAction.status === 'mining' ? 'Mining…' : repayAction.status === 'signing' ? 'Confirm…' : 'Repay' }), _jsx(ActionFeedback, { status: repayAction.status, txError: repayAction.txError })] }), _jsxs(ActionCard, { title: "4. Withdraw Collateral", children: [withdrawableAmount > 0n && (_jsxs("button", { onClick: () => setWithdrawInput(formatEther(withdrawableAmount)), className: "text-[9px] font-bold text-polkadot-pink hover:opacity-70 uppercase tracking-widest", children: ["Max: ", fmtPas(withdrawableAmount), " PAS"] })), _jsx(PasInput, { value: withdrawInput, onChange: setWithdrawInput, placeholder: withdrawableAmount > 0n ? fmtPas(withdrawableAmount) : '0.00' }), _jsx("button", { onClick: () => withdrawAction.execute({
-                                    address: LENDING_POOL, abi: POOL_ABI, functionName: 'withdraw',
-                                    args: [parseEther(withdrawInput || '0')], gas: GAS.withdraw,
-                                }), disabled: !isConnected || withdrawableAmount === 0n || !withdrawInput || withdrawAction.status === 'signing' || withdrawAction.status === 'mining', className: "w-full py-3 bg-emerald-500/10 border border-emerald-500/20 text-emerald-300 rounded-xl font-black text-xs uppercase tracking-widest hover:bg-emerald-500/20 transition-all disabled:opacity-40 disabled:cursor-not-allowed", children: withdrawAction.status === 'mining' ? 'Mining…' : withdrawAction.status === 'signing' ? 'Confirm…' : 'Withdraw' }), _jsx(ActionFeedback, { status: withdrawAction.status, txError: withdrawAction.txError })] })] }), _jsxs(ActionCard, { title: "Liquidation Engine", accent: "border-red-500/20", children: [_jsxs("div", { className: "flex items-center justify-between -mt-1", children: [_jsx("span", { className: "text-[8px] text-gray-700", children: "Repay unhealthy positions \u00B7 earn 5% bounty" }), _jsx("span", { className: "bg-red-500/10 text-red-400 px-2 py-0.5 rounded-full text-[8px] font-black uppercase border border-red-500/20", children: "5% Bounty" })] }), _jsxs("div", { className: "flex gap-2", children: [_jsxs("div", { className: "relative flex-1", children: [_jsx("input", { type: "text", placeholder: "Borrower address (0x\u2026)", value: liqTarget, onChange: e => lookupLiqTarget(e.target.value), className: "w-full bg-polkadot-dark border border-polkadot-border rounded-xl px-4 py-2.5 text-xs font-mono text-white outline-none focus:border-red-500/40 placeholder-gray-700" }), liqLookingUp && (_jsx("div", { className: "absolute right-3 top-1/2 -translate-y-1/2 w-3 h-3 border-2 border-red-400 border-t-transparent rounded-full animate-spin" }))] }), _jsx("button", { onClick: () => liqAction.execute({
+                                }), disabled: !isConnected || !simResult?.eligible || borrowAction.status === 'signing' || borrowAction.status === 'mining', className: "w-full py-3 bg-white/5 border border-white/10 text-white rounded-xl font-black text-xs uppercase tracking-widest hover:bg-white/10 transition-all disabled:opacity-40 disabled:cursor-not-allowed", children: borrowAction.status === 'mining' ? 'Mining…' : borrowAction.status === 'signing' ? 'Confirm…' : 'Borrow' }), _jsx(ActionFeedback, { status: borrowAction.status, txError: borrowAction.txError })] }), _jsxs(ActionCard, { title: "3. Repay Debt", children: [effectiveDebt > 0n && (_jsxs("button", { onClick: () => setRepayInput(formatEther(effectiveDebt + effectiveDebt / 200n)), className: "text-[9px] font-bold text-polkadot-pink hover:opacity-70 uppercase tracking-widest", children: ["Max: ", fmtPas(effectiveDebt), " PAS"] })), _jsx(PasInput, { value: repayInput, onChange: setRepayInput, disabled: repayAction.status !== 'idle', placeholder: effectiveDebt > 0n ? fmtPas(effectiveDebt) : '0.00' }), repayError && _jsxs("p", { className: "text-[9px] font-bold text-red-400 uppercase tracking-widest", children: ["\u26A0 ", repayError] }), _jsx("button", { onClick: handleRepay, disabled: !isConnected || effectiveDebt === 0n || !repayInput || !!repayError || repayAction.status !== 'idle', className: "w-full py-3 bg-blue-500/10 border border-blue-500/20 text-blue-300 rounded-xl font-black text-xs uppercase tracking-widest hover:bg-blue-500/20 transition-all disabled:opacity-40 disabled:cursor-not-allowed", children: repayAction.status === 'mining' ? 'Mining…' : repayAction.status === 'signing' ? 'Confirm…' : 'Repay' }), _jsx(ActionFeedback, { status: repayAction.status, txError: repayAction.txError })] }), _jsxs(ActionCard, { title: "4. Withdraw Collateral", children: [withdrawableAmount > 0n && (_jsxs("button", { onClick: () => setWithdrawInput(formatEther(withdrawableAmount)), className: "text-[9px] font-bold text-polkadot-pink hover:opacity-70 uppercase tracking-widest", children: ["Max: ", fmtPas(withdrawableAmount), " PAS"] })), _jsx(PasInput, { value: withdrawInput, onChange: setWithdrawInput, disabled: withdrawAction.status !== 'idle', placeholder: withdrawableAmount > 0n ? fmtPas(withdrawableAmount) : '0.00' }), withdrawError && _jsxs("p", { className: "text-[9px] font-bold text-red-400 uppercase tracking-widest", children: ["\u26A0 ", withdrawError] }), _jsx("button", { onClick: handleWithdraw, disabled: !isConnected || withdrawableAmount === 0n || !withdrawInput || !!withdrawError || withdrawAction.status !== 'idle', className: "w-full py-3 bg-emerald-500/10 border border-emerald-500/20 text-emerald-300 rounded-xl font-black text-xs uppercase tracking-widest hover:bg-emerald-500/20 transition-all disabled:opacity-40 disabled:cursor-not-allowed", children: withdrawAction.status === 'mining' ? 'Mining…' : withdrawAction.status === 'signing' ? 'Confirm…' : 'Withdraw' }), _jsx(ActionFeedback, { status: withdrawAction.status, txError: withdrawAction.txError })] })] }), _jsxs(ActionCard, { title: "Liquidation Engine", accent: "border-red-500/20", children: [_jsxs("div", { className: "flex items-center justify-between -mt-1", children: [_jsx("span", { className: "text-[8px] text-gray-700", children: "Repay unhealthy positions \u00B7 earn 5% bounty" }), _jsx("span", { className: "bg-red-500/10 text-red-400 px-2 py-0.5 rounded-full text-[8px] font-black uppercase border border-red-500/20", children: "5% Bounty" })] }), _jsxs("div", { className: "flex gap-2", children: [_jsxs("div", { className: "relative flex-1", children: [_jsx("input", { type: "text", placeholder: "Borrower address (0x\u2026)", value: liqTarget, onChange: e => lookupLiqTarget(e.target.value), className: "w-full bg-polkadot-dark border border-polkadot-border rounded-xl px-4 py-2.5 text-xs font-mono text-white outline-none focus:border-red-500/40 placeholder-gray-700" }), liqLookingUp && (_jsx("div", { className: "absolute right-3 top-1/2 -translate-y-1/2 w-3 h-3 border-2 border-red-400 border-t-transparent rounded-full animate-spin" }))] }), _jsx("button", { onClick: () => liqAction.execute({
                                     address: LENDING_POOL, abi: POOL_ABI, functionName: 'liquidate',
                                     args: [liqTarget],
                                     value: liqTargetDebt + parseEther('0.001'),

@@ -53,7 +53,7 @@ export interface HistoryRecord {
   id:        number;
   address:   string;
   score:     number;
-  breakdown: string; // JSON string from SQLite
+  breakdown: string; 
   txHash:    string;
   timestamp: number;
 }

@@ -6,13 +6,6 @@ const TOKEN_CFG = {
     USDT: { color: 'text-emerald-400', border: 'border-emerald-500/30', bg: 'bg-emerald-500/5', dot: 'bg-emerald-400' },
     USDC: { color: 'text-blue-400', border: 'border-blue-500/30', bg: 'bg-blue-500/5', dot: 'bg-blue-400' },
 };
-async function fetchEvmBalances(address) {
-    const res = await fetch(`/balances/${address}`);
-    const json = await res.json();
-    if (!json.success)
-        throw new Error(json.error ?? 'Failed');
-    return { usdt: Number(json.usdt ?? 0), usdc: Number(json.usdc ?? 0) };
-}
 export function SendStablecoin() {
     const [token, setToken] = useState('USDT');
     const [to, setTo] = useState('');
@@ -22,9 +15,6 @@ export function SendStablecoin() {
     const [errMsg, setErrMsg] = useState('');
     const [sender, setSender] = useState(null);
     const [senderLoading, setSenderLoading] = useState(true);
-    const [checkAddr, setCheckAddr] = useState('');
-    const [checkBals, setCheckBals] = useState(null);
-    const [checkLoading, setCheckLoading] = useState(false);
     const cfg = TOKEN_CFG[token];
     useEffect(() => {
         setSenderLoading(true);
@@ -33,45 +23,11 @@ export function SendStablecoin() {
             .then(json => {
             if (json.success) {
                 setSender({ ss58: json.ss58, usdt: json.usdt, usdc: json.usdc });
-                setCheckAddr(json.ss58);
             }
         })
             .catch(() => { })
             .finally(() => setSenderLoading(false));
     }, []);
-    useEffect(() => {
-        const addr = checkAddr.trim();
-        if (!addr) {
-            setCheckBals(null);
-            return;
-        }
-        const isSenderAddr = sender && addr === sender.ss58;
-        if (isSenderAddr) {
-            setCheckBals({ usdt: sender.usdt, usdc: sender.usdc });
-            return;
-        }
-        if (!isAddress(addr)) {
-            setCheckBals(null);
-            return;
-        }
-        let dead = false;
-        const load = async () => {
-            setCheckLoading(true);
-            try {
-                const b = await fetchEvmBalances(addr);
-                if (!dead)
-                    setCheckBals(b);
-            }
-            catch { /* ignore */ }
-            finally {
-                if (!dead)
-                    setCheckLoading(false);
-            }
-        };
-        load();
-        const iv = setInterval(load, 15_000);
-        return () => { dead = true; clearInterval(iv); };
-    }, [checkAddr, sender]);
     const refreshSender = useCallback(() => {
         setTimeout(() => {
             fetch('/transfer/sender')
@@ -79,13 +35,11 @@ export function SendStablecoin() {
                 .then(json => {
                 if (json.success) {
                     setSender({ ss58: json.ss58, usdt: json.usdt, usdc: json.usdc });
-                    if (checkAddr === json.ss58)
-                        setCheckBals({ usdt: json.usdt, usdc: json.usdc });
                 }
             })
                 .catch(() => { });
         }, 4_000);
-    }, [checkAddr]);
+    }, []);
     const senderBalance = sender ? (token === 'USDT' ? sender.usdt : sender.usdc) : 0;
     const toValid = isAddress(to);
     const amtNum = parseFloat(amount);
@@ -132,12 +86,7 @@ export function SendStablecoin() {
                                         return (_jsxs("div", { className: `flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border text-[9px] font-bold uppercase tracking-wide transition-all ${active
                                                 ? `${TOKEN_CFG[t].bg} ${TOKEN_CFG[t].border} ${TOKEN_CFG[t].color}`
                                                 : 'bg-white/5 border-white/10 text-gray-600'}`, children: [_jsx("span", { className: `w-1.5 h-1.5 rounded-full ${TOKEN_CFG[t].dot}` }), val.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 4 }), " ", t] }, t));
-                                    }) })] })) : (_jsx("p", { className: "text-xs font-semibold text-red-400", children: "\u2717 Could not load sender \u2014 check backend" })) })] }), _jsxs("div", { className: "space-y-1.5", children: [_jsx("div", { className: "text-[8px] font-bold uppercase tracking-widest text-gray-700", children: "Check Any Address Balance" }), _jsxs("div", { className: `flex items-center bg-polkadot-card border rounded-xl overflow-hidden transition-colors ${checkAddr && !checkAddr.startsWith('5') && !isAddress(checkAddr)
-                            ? 'border-red-500/40'
-                            : 'border-polkadot-border focus-within:border-polkadot-pink/40'}`, children: [_jsx("input", { type: "text", value: checkAddr, onChange: e => setCheckAddr(e.target.value), placeholder: "0x\u2026 or SS58 address", className: "flex-1 bg-transparent px-4 py-2.5 text-xs font-mono text-white placeholder-gray-700 outline-none" }), checkLoading && (_jsx("span", { className: "w-3 h-3 border-2 border-gray-600 border-t-gray-400 rounded-full animate-spin mx-3 shrink-0" }))] }), checkBals && checkAddr && (_jsx("div", { className: "flex gap-2 pt-0.5", children: ['USDT', 'USDC'].map(t => {
-                            const val = t === 'USDT' ? checkBals.usdt : checkBals.usdc;
-                            return (_jsxs("div", { className: `flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border text-[9px] font-bold uppercase tracking-wide ${TOKEN_CFG[t].bg} ${TOKEN_CFG[t].border} ${TOKEN_CFG[t].color}`, children: [_jsx("span", { className: `w-1.5 h-1.5 rounded-full ${TOKEN_CFG[t].dot}` }), val.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 4 }), " ", t] }, t));
-                        }) }))] }), _jsx("div", { className: "border-t border-polkadot-border" }), _jsxs("div", { className: "space-y-1.5", children: [_jsx("div", { className: "text-[8px] font-bold uppercase tracking-widest text-gray-700", children: "Recipient (0x Address)" }), _jsx("input", { type: "text", value: to, onChange: e => setTo(e.target.value), placeholder: "0x\u2026", disabled: status === 'sending', className: `w-full bg-polkadot-card border rounded-xl px-4 py-2.5 text-xs font-mono text-white placeholder-gray-700 outline-none transition-colors ${to && !toValid ? 'border-red-500/40'
+                                    }) })] })) : (_jsx("p", { className: "text-xs font-semibold text-red-400", children: "\u2717 Could not load sender \u2014 check backend" })) })] }), _jsx("div", { className: "border-t border-polkadot-border" }), _jsxs("div", { className: "space-y-1.5", children: [_jsx("div", { className: "text-[8px] font-bold uppercase tracking-widest text-gray-700", children: "Recipient (0x Address)" }), _jsx("input", { type: "text", value: to, onChange: e => setTo(e.target.value), placeholder: "0x\u2026", disabled: status === 'sending', className: `w-full bg-polkadot-card border rounded-xl px-4 py-2.5 text-xs font-mono text-white placeholder-gray-700 outline-none transition-colors ${to && !toValid ? 'border-red-500/40'
                             : to && toValid ? 'border-emerald-500/30'
                                 : 'border-polkadot-border focus:border-polkadot-pink/40'}` }), to && !toValid && _jsx("p", { className: "text-[9px] font-bold text-red-400", children: "\u2717 Invalid EVM address" })] }), _jsxs("div", { className: "space-y-1.5", children: [_jsxs("div", { className: "flex items-center justify-between", children: [_jsx("div", { className: "text-[8px] font-bold uppercase tracking-widest text-gray-700", children: "Amount" }), senderBalance > 0 && (_jsxs("button", { onClick: () => setAmount(senderBalance.toFixed(6)), className: `text-[9px] font-bold uppercase tracking-widest hover:opacity-70 transition-opacity ${cfg.color}`, children: ["Max: ", senderBalance.toFixed(4), " ", token] }))] }), _jsxs("div", { className: `flex items-center bg-polkadot-card border rounded-xl overflow-hidden transition-colors ${tooMuch ? 'border-red-500/40'
                             : amount && amtValid ? cfg.border

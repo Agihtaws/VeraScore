@@ -126,8 +126,6 @@ export async function readWalletData(address: string): Promise<WalletChainData> 
       if (versions) metadataVersions = versions.map(Number);
     } catch {}
 
-    // ── Optimized: Removed Sidecar fetches for Paseo Testnet ──
-    // This removes the 20s+ timeout delay since Sidecar isn't available here.
     const bridgedAssets: string[] = [];
     const walletAgeDays           = 0;
     const hasForeignAssets        = false;
