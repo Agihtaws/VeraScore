@@ -2,8 +2,8 @@
 
 > AI-powered on-chain credit scoring for Polkadot Hub — OpenGuild Polkadot Solidity Hackathon 2026
 
-**Live demo:** `https://YOUR_FRONTEND_URL`  
-**Backend API:** `https://YOUR_BACKEND_URL`  
+**Live demo:** `https://vera-score.vercel.app/`  
+**Backend API:** `https://verascore.onrender.com`  
 **GitHub:** `https://github.com/Agihtaws/VeraScore`  
 **Chain:** Polkadot Hub TestNet (Chain ID `420420417`, Paseo Asset Hub)  
 **Explorer:** [polkadot.testnet.routescan.io](https://polkadot.testnet.routescan.io)
